@@ -4,7 +4,7 @@ import VerifyEmail from "../src/Auth/EmailVerify.jsx"
 import ResetPassword from "../src/Auth/ResetPassword.jsx"
 import{ToastContainer} from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css'
-
+import AdminPage from './pages/adminpage/AdminPage.jsx';
 import Layout from './components/layout/Layout.jsx';
 import { Route } from 'react-router-dom';
 import { Routes, Navigate } from 'react-router-dom';
@@ -27,6 +27,7 @@ const App = () => {
           <Route path="/browse-skills" element={<BrowseSkillsPage />} />
           <Route path="/my-profile" element={<MyProfilePage />} />
           <Route path="/profile/:userId" element={<PublicProfilePage />} />
+          <Route path="/admin" element={<AdminPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Layout>

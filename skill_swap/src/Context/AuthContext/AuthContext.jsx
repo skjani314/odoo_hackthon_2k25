@@ -33,6 +33,7 @@ export const AuthProvider = ({ children }) => {
     skillsWanted: ['Real API Integration', 'Deployment'],
     availability: '24/7',
     isPublic: true,
+    role:"admin", // or "user" based on your needs
   });
   const [loadingAuth, setLoadingAuth] = useState(false);
 
