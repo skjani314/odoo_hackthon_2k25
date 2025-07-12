@@ -14,3 +14,10 @@ email: skskjani7@gmail.com
 
 member1: uday kiran ponna ganti
 email: udaykiranponnaganti6@gmail.com
+
+
+
+admin credentials of app
+
+email:skskjani7@gmail.com
+password:skjani314@A
