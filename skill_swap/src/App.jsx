@@ -1,6 +1,11 @@
 import { AuthProvider } from './Context/AuthContext/AuthContext.jsx';
+import Login from "../src/Auth/Login.jsx"
+import VerifyEmail from "../src/Auth/EmailVerify.jsx"
+import ResetPassword from "../src/Auth/ResetPassword.jsx"
+import{ToastContainer} from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css'
 
-import Layout from './components/layout/Layout.jsx'; 
+import Layout from './components/layout/Layout.jsx';
 import { Route } from 'react-router-dom';
 import { Routes, Navigate } from 'react-router-dom';
 import BrowseSkillsPage from './pages/BrowseSkills/BrowseSkill.jsx';
@@ -10,10 +15,14 @@ import PublicProfilePage from './pages/PublicProfilePage/PublicProfilepage.jsx';
 const App = () => {
 
   return (
-    <AuthProvider>     
+    <AuthProvider>
       <Layout>
+            <ToastContainer/>
         <Routes>
-          <Route path="/" element={<BrowseSkillsPage/>} />
+          <Route path="/" element={<BrowseSkillsPage />} />
+          <Route path='/login' element={<Login />} />
+          <Route path='/emailverify' element={<VerifyEmail />} />
+          <Route path='/resetpassword' element={<ResetPassword />} />
           <Route path="/home" element={<BrowseSkillsPage />} />
           <Route path="/browse-skills" element={<BrowseSkillsPage />} />
           <Route path="/my-profile" element={<MyProfilePage />} />
