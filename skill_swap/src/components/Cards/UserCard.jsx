@@ -7,12 +7,12 @@ const UserCard = ({ user, onClick }) => {
   return (
     <div
       className="bg-white rounded-lg shadow-md p-4 flex flex-col items-center text-center cursor-pointer hover:shadow-lg transition-shadow duration-200"
-      onClick={() => onClick(user.id)}
+      onClick={() => onClick(user._id)}
       role="button"
       tabIndex="0"
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
-          onClick(user.id);
+          onClick(user._id);
         }
       }}
     >
