@@ -243,3 +243,36 @@ export const ResetPassword=async(req,res)=>
             return res.json({success:false,message:error.message});
         }
 }
+
+//who logged in
+
+
+export const whoLoggedIn=async(req,res)=>   
+{
+    const {token}=req.cookies;
+        
+        if(!token)
+        {
+            return res.json({success:false,message:'Not Authorized login again'});
+        }
+    
+        try {
+            const tokenDecode=jwt.verify(token,process.env.JWT_SECRET)
+            if(tokenDecode.id)
+            {
+                req.body.userId=tokenDecode.id;
+            }
+console.log(tokenDecode.id);
+            const user=await userModel.findOne({_id:tokenDecode.id});
+           if(!user)
+           {
+               return res.json({success:false,message:'Not Authorized login again'});
+           }
+                
+            
+            
+             return  res.json({user:user})
+        } catch (error) {
+            return res.json({success:false,message:error.message})
+        }
+}   

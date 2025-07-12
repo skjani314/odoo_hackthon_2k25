@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser'
 import connectDb from './config/mongodb.js'
 import authRouter from './Router/auth-Router.js'
 import userRouter from './Router/userRoutes.js'
+import RequestRouter from './Router/RequestRoutes.js'
 
 const app=express();
 
@@ -23,4 +24,5 @@ app.get('/',(req,res)=>
 
 app.use('/api/auth',authRouter)
 app.use('/api/user',userRouter)
+app.use('/api/request',RequestRouter);
 app.listen(port,()=>console.log(`server is running at http://localhost:${port}`))
