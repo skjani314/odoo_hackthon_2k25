@@ -1,43 +1,132 @@
-import  { useState, useContext} from 'react';
-import { Download, Send, AlertCircle, UserX, CheckCircle, Clock } from 'lucide-react'; 
-import Button  from '../../components/ui/button/Button'; 
-import { AuthContext } from '../../Context/AuthContext/AuthContext';
-import TextAreaField from '../../components/ui/TextArea/TextArea';
-import LoadingSpinner from '../../components/ui/Loading/Loading';
-import ErrorMessage from '../../components/ui/Error/Error';
-import SwapRequestList from '../../components/SwapRequestList/SwapRequestList';
+import React, { useState, useEffect, useContext } from 'react';
+import { Download, Send, AlertCircle, UserX, CheckCircle, Clock } from 'lucide-react';
+import axios from 'axios'; // Import axios for API calls
+import { toast } from 'react-toastify'; // For notifications
+
+// --- Import Reusable Components (adjust paths as per your folder structure) ---
+import Button from '../../components/ui/button/Button.jsx';
+import { AuthContext } from '../../Context/AuthContext/AuthContext.jsx';
+import TextAreaField from '../../components/ui/TextArea/TextArea.jsx'; // Assuming TextAreaField path
+import LoadingSpinner from '../../components/ui/Loading/Loading.jsx';
+import ErrorMessage from '../../components/ui/Error/Error.jsx';
+import SwapRequestList from '../../components/SwapRequestList/SwapRequestList.jsx'; // Assuming SwapRequestList path
+
+// --- API Base URL (Centralized for Frontend) ---
+const API_BASE_URL = 'http://localhost:5000/api'; // Ensure this matches your backend URL
 
 
-
+/**
+ * AdminPage Component
+ *
+ * This component serves as the administrative dashboard for the Skill Swap platform.
+ * It provides functionalities for:
+ * - Monitoring and managing users (e.g., banning).
+ * - Monitoring swap requests (pending, accepted, cancelled).
+ * - Sending platform-wide messages.
+ * - Downloading various reports (user activity, feedback, swap stats).
+ *
+ * It ensures access is restricted to admin users (via AuthContext check).
+ * All necessary reusable components are assumed to be imported from their respective files.
+ */
 const AdminPage = () => {
+  // Get the current user from AuthContext to check for admin role.
+  const { user, loadingAuth, logout } = useContext(AuthContext);
 
-    const { user, loadingAuth } = useContext(AuthContext);
+  const [managedUsers, setManagedUsers] = useState([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
+  const [usersError, setUsersError] = useState('');
 
-  const [managedUsers, setManagedUsers] = useState([
-    { id: 'user123', name: 'John Doe', email: 'john@example.com', status: 'active', skills: ['React', 'Node.js'] },
-    { id: 'user456', name: 'Jane Smith', email: 'jane@example.com', status: 'active', skills: ['UI/UX', 'Figma'] },
-    { id: 'user789', name: 'Mike Johnson', email: 'mike@example.com', status: 'banned', skills: ['Python', 'Data Science'] },
-    { id: 'user101', name: 'Sarah Lee', email: 'sarah@example.com', status: 'active', skills: ['Photography'] },
-  ]);
-
-  const [allSwapRequests, setAllSwapRequests] = useState([
-    { id: 'reqA', senderId: 'user123', senderName: 'John Doe', recipientId: 'user456', recipientName: 'Jane Smith', skillsInvolved: ['React', 'UI/UX Design'], message: 'Seeking UI/UX help!', status: 'pending' },
-    { id: 'reqB', senderId: 'user456', senderName: 'Jane Smith', recipientId: 'user123', recipientName: 'John Doe', skillsInvolved: ['Figma', 'Node.js'], message: 'Offering Figma for Node.js!', status: 'accepted' },
-    { id: 'reqC', senderId: 'user789', senderName: 'Mike Johnson', recipientId: 'user101', recipientName: 'Sarah Lee', skillsInvolved: ['Python', 'Photography'], message: 'Python for Photography?', status: 'rejected' },
-    { id: 'reqD', senderId: 'user101', senderName: 'Sarah Lee', recipientId: 'user123', recipientName: 'John Doe', skillsInvolved: ['Graphic Design', 'MongoDB'], message: 'Graphic Design for MongoDB help.', status: 'pending' },
-  ]);
+  const [allSwapRequests, setAllSwapRequests] = useState([]);
+  const [loadingSwaps, setLoadingSwaps] = useState(true);
+  const [swapsError, setSwapsError] = useState('');
+  const [swapFilter, setSwapFilter] = useState('all'); // State for swap request filters
 
   const [platformMessage, setPlatformMessage] = useState('');
   const [messageSending, setMessageSending] = useState(false);
   const [messageError, setMessageError] = useState('');
   const [messageSuccess, setMessageSuccess] = useState('');
 
+  // Check if the current user has admin role.
   const isAdmin = user && user.role === 'admin';
 
+  // Effect to fetch all users for management
+  useEffect(() => {
+    const fetchUsers = async () => {
+      if (!isAdmin) return; // Only fetch if user is admin
+
+      setLoadingUsers(true);
+      setUsersError('');
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) throw new Error('Authentication token missing.');
+
+        const response = await axios.get(`${API_BASE_URL}/users`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        // Backend's /api/users returns only public users by default.
+        // For admin, we might need a dedicated /api/admin/users endpoint or modify existing.
+        // Assuming current /api/users returns all users for admin role.
+        setManagedUsers(response.data.users);
+        setLoadingUsers(false);
+      } catch (err) {
+        console.error('Failed to fetch users for admin:', err);
+        const errorMessage = err.response?.data?.message || err.message || 'Failed to load users.';
+        setUsersError(errorMessage);
+        toast.error(errorMessage);
+        setLoadingUsers(false);
+        if (err.response && err.response.status === 401) logout();
+      }
+    };
+    if (!loadingAuth) { // Only fetch once auth status is determined
+      fetchUsers();
+    }
+  }, [isAdmin, loadingAuth, logout]);
+
+  // Effect to fetch all swap requests for monitoring
+  useEffect(() => {
+    const fetchSwapRequests = async () => {
+      if (!isAdmin) return;
+
+      setLoadingSwaps(true);
+      setSwapsError('');
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) throw new Error('Authentication token missing.');
+
+        // For admin, we need an endpoint that returns ALL swap requests.
+        // Assuming we can use /api/swaps/sent and /api/swaps/received and combine them,
+        // or a new /api/swaps/all endpoint is implemented in backend.
+        // For now, let's combine sent and received for the admin view.
+        const sentResponse = await axios.get(`${API_BASE_URL}/swaps/sent`, { headers: { Authorization: `Bearer ${token}` } });
+        const receivedResponse = await axios.get(`${API_BASE_URL}/swaps/received`, { headers: { Authorization: `Bearer ${token}` } });
+
+        const allRequests = [...sentResponse.data.requests, ...receivedResponse.data.requests];
+        // Remove duplicates if any (requests might appear in both sent and received for admin)
+        const uniqueRequests = Array.from(new Map(allRequests.map(item => [item['_id'], item])).values());
+
+        setAllSwapRequests(uniqueRequests);
+        setLoadingSwaps(false);
+      } catch (err) {
+        console.error('Failed to fetch swap requests for admin:', err);
+        const errorMessage = err.response?.data?.message || err.message || 'Failed to load swap requests.';
+        setSwapsError(errorMessage);
+        toast.error(errorMessage);
+        setLoadingSwaps(false);
+        if (err.response && err.response.status === 401) logout();
+      }
+    };
+    if (!loadingAuth) {
+      fetchSwapRequests();
+    }
+  }, [isAdmin, loadingAuth, logout]);
+
+
+  // If authentication is still loading, show spinner.
   if (loadingAuth) {
     return <LoadingSpinner />;
   }
 
+  // If not an admin, display an access denied message.
   if (!isAdmin) {
     return (
       <div className="py-12 text-center">
@@ -48,25 +137,50 @@ const AdminPage = () => {
     );
   }
 
+  // --- Admin Actions (Backend Integrated) ---
 
-  const handleBanUser = (userId) => {
-    console.log(`Admin action: Banning user ${userId}`);
-    // Simulate API call
-    setManagedUsers(prevUsers =>
-      prevUsers.map(u => (u.id === userId ? { ...u, status: 'banned' } : u))
-    );
-    // TODO: Implement actual API call to ban user
-    alert(`User ${userId} banned (simulated).`); // Use custom message box
+  const handleBanUser = async (userId) => {
+    if (!window.confirm('Are you sure you want to ban this user?')) return; // Use browser confirm for now
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.put(`${API_BASE_URL}/users/${userId}/ban`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (response.data.success) {
+        setManagedUsers(prevUsers =>
+          prevUsers.map(u => (u._id === userId ? { ...u, status: 'banned' } : u))
+        );
+        toast.success(response.data.message);
+      } else {
+        toast.error(response.data.message);
+      }
+    } catch (err) {
+      console.error('Failed to ban user:', err);
+      toast.error(err.response?.data?.message || 'Failed to ban user.');
+      if (err.response && err.response.status === 401) logout();
+    }
   };
 
-  const handleUnbanUser = (userId) => {
-    console.log(`Admin action: Unbanning user ${userId}`);
-    // Simulate API call
-    setManagedUsers(prevUsers =>
-      prevUsers.map(u => (u.id === userId ? { ...u, status: 'active' } : u))
-    );
-    // TODO: Implement actual API call to unban user
-    alert(`User ${userId} unbanned (simulated).`); // Use custom message box
+  const handleUnbanUser = async (userId) => {
+    if (!window.confirm('Are you sure you want to unban this user?')) return; // Use browser confirm for now
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.put(`${API_BASE_URL}/users/${userId}/unban`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (response.data.success) {
+        setManagedUsers(prevUsers =>
+          prevUsers.map(u => (u._id === userId ? { ...u, status: 'active' } : u))
+        );
+        toast.success(response.data.message);
+      } else {
+        toast.error(response.data.message);
+      }
+    } catch (err) {
+      console.error('Failed to unban user:', err);
+      toast.error(err.response?.data?.message || 'Failed to unban user.');
+      if (err.response && err.response.status === 401) logout();
+    }
   };
 
   const handleSendPlatformMessage = async (e) => {
@@ -78,58 +192,97 @@ const AdminPage = () => {
     setMessageSending(true);
     setMessageError('');
     setMessageSuccess('');
-    console.log('Admin action: Sending platform-wide message:', platformMessage);
-    // TODO: Implement actual API call to send message
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      setMessageSuccess('Message sent successfully!');
-      setPlatformMessage(''); // Clear message
+      const token = localStorage.getItem('token');
+      const response = await axios.post(`${API_BASE_URL}/admin/message`, { message: platformMessage }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (response.data.success) {
+        setMessageSuccess(response.data.message);
+        setPlatformMessage('');
+        toast.success(response.data.message);
+      } else {
+        setMessageError(response.data.message);
+        toast.error(response.data.message);
+      }
     } catch (err) {
-      setMessageError('Failed to send message. Please try again.');
+      console.error('Failed to send platform message:', err);
+      const errorMessage = err.response?.data?.message || err.message || 'Failed to send message.';
+      setMessageError(errorMessage);
+      toast.error(errorMessage);
+      if (err.response && err.response.status === 401) logout();
     } finally {
       setMessageSending(false);
     }
   };
 
-  const handleDownloadReport = (reportType) => {
-    console.log(`Admin action: Downloading ${reportType} report`);
-    // Simulate file download
-    const dummyData = JSON.stringify({
-      reportType,
-      timestamp: new Date().toISOString(),
-      data: `Dummy data for ${reportType} report.`
-    }, null, 2);
-    const blob = new Blob([dummyData], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${reportType}_report_${Date.now()}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    alert(`Downloading ${reportType} report (simulated). Check your downloads.`); // Use custom message box
+  const handleDownloadReport = async (reportType) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API_BASE_URL}/admin/reports/${reportType}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: 'blob', // Important for file downloads
+      });
+
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${reportType}_report_${Date.now()}.json`); // Or .csv, .xlsx
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode.removeChild(link);
+      toast.success(`Downloading ${reportType} report...`);
+    } catch (err) {
+      console.error(`Failed to download ${reportType} report:`, err);
+      toast.error(err.response?.data?.message || `Failed to download ${reportType} report.`);
+      if (err.response && err.response.status === 401) logout();
+    }
   };
 
   // --- Swap Monitoring Handlers (passed to SwapRequestList) ---
-  const handleAdminAcceptSwap = (requestId) => {
-    console.log(`Admin accepting swap: ${requestId}`);
-    setAllSwapRequests(prev => prev.map(req => req.id === requestId ? { ...req, status: 'accepted' } : req));
-    // TODO: API call to update swap status
+  const handleAdminUpdateSwapStatus = async (requestId, newStatus) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.put(`${API_BASE_URL}/swaps/${requestId}/status`, { status: newStatus }, {
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+      });
+      if (response.data.success) {
+        setAllSwapRequests(prev => prev.map(req => req._id === requestId ? { ...req, status: newStatus } : req));
+        toast.success(response.data.message);
+      } else {
+        toast.error(response.data.message);
+      }
+    } catch (err) {
+      console.error(`Error updating swap status to ${newStatus}:`, err);
+      toast.error(err.response?.data?.message || `Failed to update swap status to ${newStatus}.`);
+      if (err.response && err.response.status === 401) logout();
+    }
   };
 
-  const handleAdminRejectSwap = (requestId) => {
-    console.log(`Admin rejecting swap: ${requestId}`);
-    setAllSwapRequests(prev => prev.map(req => req.id === requestId ? { ...req, status: 'rejected' } : req));
-    // TODO: API call to update swap status
+  const handleAdminDeleteSwap = async (requestId) => {
+    if (!window.confirm('Are you sure you want to delete this swap request?')) return; // Use browser confirm for now
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.delete(`${API_BASE_URL}/swaps/${requestId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (response.data.success) {
+        setAllSwapRequests(prev => prev.filter(req => req._id !== requestId));
+        toast.success(response.data.message);
+      } else {
+        toast.error(response.data.message);
+      }
+    } catch (err) {
+      console.error('Error deleting swap:', err);
+      toast.error(err.response?.data?.message || 'Failed to delete swap request.');
+      if (err.response && err.response.status === 401) logout();
+    }
   };
 
-  const handleAdminDeleteSwap = (requestId) => {
-    console.log(`Admin deleting/archiving swap: ${requestId}`);
-    setAllSwapRequests(prev => prev.map(req => req.id === requestId ? { ...req, status: 'deleted' } : req));
-    // TODO: API call to update swap status (or remove from list)
-  };
-
+  // Filtered swap requests based on current filter state
+  const filteredSwapRequests = swapFilter === 'all'
+    ? allSwapRequests
+    : allSwapRequests.filter(req => req.status === swapFilter);
 
   return (
     // Main container for the Admin Page.
@@ -148,42 +301,50 @@ const AdminPage = () => {
             <UserX className="mr-2" size={24} /> User Management
           </h3>
           <p className="text-gray-600 mb-4">Monitor and manage user accounts.</p>
-          <div className="overflow-x-auto"> {/* Ensures table is scrollable on small screens */}
-            <table className="min-w-full bg-white border border-gray-200 rounded-lg">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="py-2 px-4 border-b text-left text-sm font-semibold text-gray-600">Name</th>
-                  <th className="py-2 px-4 border-b text-left text-sm font-semibold text-gray-600">Email</th>
-                  <th className="py-2 px-4 border-b text-left text-sm font-semibold text-gray-600">Status</th>
-                  <th className="py-2 px-4 border-b text-left text-sm font-semibold text-gray-600">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {managedUsers.map((userItem) => (
-                  <tr key={userItem.id} className="hover:bg-gray-50">
-                    <td className="py-3 px-4 border-b text-gray-800 text-sm">{userItem.name}</td>
-                    <td className="py-3 px-4 border-b text-gray-600 text-sm">{userItem.email}</td>
-                    <td className="py-3 px-4 border-b text-sm">
-                      <span className={`px-2 py-1 rounded-full text-xs font-semibold
-                        ${userItem.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}
-                      `}>
-                        {userItem.status.charAt(0).toUpperCase() + userItem.status.slice(1)}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 border-b">
-                      <div className="flex space-x-2">
-                        {userItem.status === 'active' ? (
-                          <Button onClick={() => handleBanUser(userItem.id)} variant="danger" className="text-xs px-2 py-1">Ban</Button>
-                        ) : (
-                          <Button onClick={() => handleUnbanUser(userItem.id)} variant="secondary" className="text-xs px-2 py-1">Unban</Button>
-                        )}
-                      </div>
-                    </td>
+          {loadingUsers ? (
+            <LoadingSpinner />
+          ) : usersError ? (
+            <ErrorMessage message={usersError} />
+          ) : (
+            <div className="overflow-x-auto"> {/* Ensures table is scrollable on small screens */}
+              <table className="min-w-full bg-white border border-gray-200 rounded-lg">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="py-2 px-4 border-b text-left text-sm font-semibold text-gray-600">Name</th>
+                    <th className="py-2 px-4 border-b text-left text-sm font-semibold text-gray-600">Email</th>
+                    <th className="py-2 px-4 border-b text-left text-sm font-semibold text-gray-600">Status</th>
+                    <th className="py-2 px-4 border-b text-left text-sm font-semibold text-gray-600">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {managedUsers.map((userItem) => (
+                    <tr key={userItem._id} className="hover:bg-gray-50">
+                      <td className="py-3 px-4 border-b text-gray-800 text-sm">{userItem.name}</td>
+                      <td className="py-3 px-4 border-b text-gray-600 text-sm">{userItem.email}</td>
+                      <td className="py-3 px-4 border-b text-sm">
+                        <span className={`px-2 py-1 rounded-full text-xs font-semibold
+                          ${userItem.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}
+                        `}>
+                          {userItem.status ? userItem.status.charAt(0).toUpperCase() + userItem.status.slice(1) : 'Active'} {/* Default to Active if status is missing */}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 border-b">
+                        <div className="flex space-x-2">
+                          {userItem.role !== 'admin' && ( // Prevent banning admins
+                            userItem.status === 'active' ? (
+                              <Button onClick={() => handleBanUser(userItem._id)} variant="danger" className="text-xs px-2 py-1">Ban</Button>
+                            ) : (
+                              <Button onClick={() => handleUnbanUser(userItem._id)} variant="secondary" className="text-xs px-2 py-1">Unban</Button>
+                            )
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
         {/* Platform-Wide Messages Section */}
@@ -216,20 +377,61 @@ const AdminPage = () => {
             <Clock className="mr-2" size={24} /> Swap Monitoring
           </h3>
           <p className="text-gray-600 mb-4">Overview of all pending, accepted, and cancelled swap requests.</p>
-          {/* Filters for swap status (optional, but good for UX) */}
-          <div className="flex flex-wrap gap-2 items-center justify-center space-x-2 mb-4">
-            <Button variant="secondary" className="text-sm w-23">All</Button>
-            <Button variant="secondary" className="text-sm">Pending</Button>
-            <Button variant="secondary" className="text-sm">Accepted</Button>
-            <Button variant="secondary" className="text-sm">Rejected</Button>
+          {/* Filters for swap status */}
+          <div className="flex flex-wrap gap-2 items-center justify-center sm:justify-start mb-4">
+            <Button
+              onClick={() => setSwapFilter('all')}
+              variant={swapFilter === 'all' ? 'primary' : 'secondary'}
+              className="text-sm px-4 py-2"
+            >
+              All
+            </Button>
+            <Button
+              onClick={() => setSwapFilter('pending')}
+              variant={swapFilter === 'pending' ? 'primary' : 'secondary'}
+              className="text-sm px-4 py-2"
+            >
+              Pending
+            </Button>
+            <Button
+              onClick={() => setSwapFilter('accepted')}
+              variant={swapFilter === 'accepted' ? 'primary' : 'secondary'}
+              className="text-sm px-4 py-2"
+            >
+              Accepted
+            </Button>
+            <Button
+              onClick={() => setSwapFilter('rejected')}
+              variant={swapFilter === 'rejected' ? 'primary' : 'secondary'}
+              className="text-sm px-4 py-2"
+            >
+              Rejected
+            </Button>
+            <Button
+              onClick={() => setSwapFilter('cancelled')}
+              variant={swapFilter === 'cancelled' ? 'primary' : 'secondary'}
+              className="text-sm px-4 py-2"
+            >
+              Cancelled
+            </Button>
           </div>
-          <SwapRequestList
-            requests={allSwapRequests}
-            type="all"
-            onAccept={handleAdminAcceptSwap}
-            onReject={handleAdminRejectSwap}
-            onDelete={handleAdminDeleteSwap}
-          />
+          {loadingSwaps ? (
+            <LoadingSpinner />
+          ) : swapsError ? (
+            <ErrorMessage message={swapsError} />
+          ) : filteredSwapRequests.length === 0 ? (
+            <div className="bg-white p-6 rounded-lg shadow-md text-center text-gray-600">
+              <p>No {swapFilter} swap requests found.</p>
+            </div>
+          ) : (
+            <SwapRequestList
+              requests={filteredSwapRequests}
+              type="admin" // Indicate it's for admin view
+              onAccept={(id) => handleAdminUpdateSwapStatus(id, 'accepted')}
+              onReject={(id) => handleAdminUpdateSwapStatus(id, 'rejected')}
+              onDelete={handleAdminDeleteSwap}
+            />
+          )}
         </div>
 
         {/* Reports Section */}

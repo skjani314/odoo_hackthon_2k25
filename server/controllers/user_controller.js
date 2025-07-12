@@ -75,3 +75,19 @@ export const GetUsersBySkills=async(req,res,next)=>{
         return res.json({success:false,message:error.message});
     }
 }
+
+export const GetAllUsers=async(req,res,next)=>{
+
+try{
+
+    const users=await userModel.find({is_public:true});
+    if(users.length===0)
+    {
+        return res.json({success:false,message:"no users found"});
+    }
+    res.json({success:true,users});
+}
+catch(error){
+    next(error);
+}
+}

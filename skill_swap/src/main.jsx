@@ -5,7 +5,6 @@ import App from './App.jsx'
 import '@fontsource/inter';
 import { BrowserRouter } from 'react-router-dom'
 import { AppContextProvider } from './Context/AppContext.jsx'
-import { Routes } from 'react-router-dom'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

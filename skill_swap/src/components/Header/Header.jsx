@@ -32,8 +32,8 @@ const Header = () => {
             ) : (
               
               <>
-                <li><Link href="/login" className="block py-2 md:py-0 hover:text-blue-200 transition duration-150 ease-in-out">Login</Link></li>
-                <li><Link href="/signup" className="block py-2 md:py-0 hover:text-blue-200 transition duration-150 ease-in-out">Signup</Link></li>
+                <li><Link to="/login" className="block py-2 md:py-0 hover:text-blue-200 transition duration-150 ease-in-out">Login</Link></li>
+                <li><Link to="/signup" className="block py-2 md:py-0 hover:text-blue-200 transition duration-150 ease-in-out">Signup</Link></li>
               </>
             )}
           </ul>

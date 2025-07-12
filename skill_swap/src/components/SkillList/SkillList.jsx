@@ -14,6 +14,10 @@ const SkillList = ({ skills, type, isEditable = false, onAddSkill, onRemoveSkill
   const headingText = type === 'offered' ? 'Skills Offered' : 'Skills Wanted';
   const placeholderText = `Add a new ${type === 'offered' ? 'offered' : 'wanted'} skill`;
 
+  if(!skills || !Array.isArray(skills)) {
+    return <p className="text-red-500">Invalid skills data provided.</p>;
+  }
+
   return (
     <div className="mb-4">
       <h3 className="text-lg font-semibold text-gray-700 mb-2">{headingText}</h3>

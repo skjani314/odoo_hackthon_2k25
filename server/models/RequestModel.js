@@ -1,12 +1,11 @@
-import { create } from "domain";
-import mongoose from "mongoose";
+const swapRequestSchema = new mongoose.Schema({
+  sender: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  recipient: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  skillsInvolved: [{ type: String, required: true, trim: true }],
+  message: { type: String, required: true, trim: true },
+  status: { type: String, enum: ['pending', 'accepted', 'rejected', 'cancelled'], default: 'pending' },
+}, { timestamps: true });
 
-export const RequestSchema= new mongoose.Schema({
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'user', required: true },
-    receiverId: { type: mongoose.Schema.Types.ObjectId, ref: 'user', required: true },
-    status: { type: String, enum:["pending","accepted","rejected"],default: "pending" }, 
-    description:{ type: String },
-    createdAt: { type: Date, default: Date.now },
-});     
-const RequestModel=mongoose.models.Requests || mongoose.model('Requests',RequestSchema);
-export default RequestModel;
+const SwapRequest = mongoose.model('SwapRequest', swapRequestSchema);
+
+export default SwapRequest;

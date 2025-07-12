@@ -1,1239 +1,899 @@
-import React, { useState, useEffect, createContext, useContext } from 'react';
+// server.js - Complete Backend for Skill Swap Platform
 
-// --- Context for Global State (User Authentication) ---
-const AuthContext = createContext(null);
+// --- 1. Setup and Imports ---
+import 'dotenv/config'; // Load environment variables from .env file
+import express from 'express';
+import mongoose from 'mongoose';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import nodemailer from 'nodemailer';
+import { v2 as cloudinary } from 'cloudinary'; // ES6 import for Cloudinary
+import cors from 'cors';
+import crypto from 'crypto';
+import { body, validationResult } from 'express-validator';
 
-const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null); // Dummy user object
-  const [loadingAuth, setLoadingAuth] = useState(true);
+const app = express();
+const PORT = process.env.PORT || 5000;
 
-  useEffect(() => {
-    // Simulate checking auth status (e.g., from local storage or an API call)
-    const storedUser = JSON.parse(localStorage.getItem('skillSwapUser'));
-    if (storedUser) {
-      setUser(storedUser);
-    }
-    setLoadingAuth(false);
-  }, []);
+// --- 2. Configuration ---
 
-  const login = async (email, password) => {
-    setLoadingAuth(true);
-    // TODO: API call for login
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        if (email === 'test@example.com' && password === 'password') {
-          const dummyUser = {
-            id: 'user123',
-            name: 'John Doe',
-            email: 'test@example.com',
-            location: 'New York, USA',
-            profilePhoto: 'https://placehold.co/150x150/007bff/ffffff?text=JD',
-            skillsOffered: ['React', 'Node.js', 'MongoDB'],
-            skillsWanted: ['UI/UX Design', 'Python'],
-            availability: 'Weekends, Evenings',
-            isPublic: true,
-          };
-          setUser(dummyUser);
-          localStorage.setItem('skillSwapUser', JSON.stringify(dummyUser));
-          setLoadingAuth(false);
-          resolve({ success: true });
-        } else {
-          setLoadingAuth(false);
-          resolve({ success: false, error: 'Invalid credentials' });
-        }
-      }, 1000);
-    });
-  };
+// MongoDB URI
+const MONGODB_URI = process.env.MONGODB_URI;
+if (!MONGODB_URI) {
+  console.error('FATAL ERROR: MONGODB_URI is not defined in environment variables.');
+  process.exit(1);
+}
 
-  const signup = async (name, email, password) => {
-    setLoadingAuth(true);
-    // TODO: API call for signup
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        const dummyUser = {
-          id: 'newUser456',
-          name: name,
-          email: email,
-          location: '',
-          profilePhoto: '',
-          skillsOffered: [],
-          skillsWanted: [],
-          availability: '',
-          isPublic: true,
-        };
-        setUser(dummyUser);
-        localStorage.setItem('skillSwapUser', JSON.stringify(dummyUser));
-        setLoadingAuth(false);
-        resolve({ success: true });
-      }, 1000);
-    });
-  };
+// JWT Secret
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('FATAL ERROR: JWT_SECRET is not defined in environment variables.');
+  process.exit(1);
+}
 
-  const logout = () => {
-    setUser(null);
-    localStorage.removeItem('skillSwapUser');
-  };
+// Nodemailer Config
+const NODEMAILER_EMAIL = process.env.NODEMAILER_EMAIL;
+const NODEMAILER_PASSWORD = process.env.NODEMAILER_PASSWORD;
+if (!NODEMAILER_EMAIL || !NODEMAILER_PASSWORD) {
+  console.warn('WARNING: NODEMAILER_EMAIL or NODEMAILER_PASSWORD not set. Email functionalities will be disabled.');
+}
 
-  return (
-    <AuthContext.Provider value={{ user, loadingAuth, login, signup, logout, setUser }}>
-      {children}
-    </AuthContext.Provider>
-  );
-};
+const transporter = NODEMAILER_EMAIL && NODEMAILER_PASSWORD ? nodemailer.createTransport({
+  service: 'gmail', // Or your email service provider (e.g., 'smtp.mailtrap.io' for testing)
+  auth: {
+    user: NODEMAILER_EMAIL,
+    pass: NODEMAILER_PASSWORD,
+  },
+}) : null;
 
-// --- Reusable UI Components ---
+// Cloudinary Config
+const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME;
+const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY;
+const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET;
 
-const Button = ({ onClick, children, variant = 'primary', className = '', disabled = false }) => {
-  const baseStyles = 'px-4 py-2 rounded-lg font-semibold transition duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-opacity-75';
-  const variants = {
-    primary: 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500',
-    secondary: 'bg-gray-200 text-gray-800 hover:bg-gray-300 focus:ring-gray-400',
-    danger: 'bg-red-600 text-white hover:bg-red-700 focus:ring-red-500',
-    outline: 'border border-blue-600 text-blue-600 hover:bg-blue-50 focus:ring-blue-500',
-  };
+if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_API_KEY || !CLOUDINARY_API_SECRET) {
+  console.warn('WARNING: Cloudinary credentials not fully set. Image upload functionality will be limited or disabled.');
+} else {
+  cloudinary.config({
+    cloud_name: CLOUDINARY_CLOUD_NAME,
+    api_key: CLOUDINARY_API_KEY,
+    api_secret: CLOUDINARY_API_SECRET,
+  });
+}
 
-  return (
-    <button
-      onClick={onClick}
-      className={`${baseStyles} ${variants[variant]} ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className}`}
-      disabled={disabled}
-    >
-      {children}
-    </button>
-  );
-};
-
-const InputField = ({ label, type, name, value, onChange, placeholder, error, required = false }) => {
-  return (
-    <div className="mb-4">
-      <label htmlFor={name} className="block text-gray-700 text-sm font-medium mb-2">
-        {label} {required && <span className="text-red-500">*</span>}
-      </label>
-      <input
-        type={type}
-        id={name}
-        name={name}
-        value={value}
-        onChange={onChange}
-        placeholder={placeholder}
-        required={required}
-        className={`shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${error ? 'border-red-500' : 'border-gray-300'}`}
-      />
-      {error && <p className="text-red-500 text-xs italic mt-1">{error}</p>}
-    </div>
-  );
-};
-
-const TextAreaField = ({ label, name, value, onChange, placeholder, error, rows = 4, required = false }) => {
-  return (
-    <div className="mb-4">
-      <label htmlFor={name} className="block text-gray-700 text-sm font-medium mb-2">
-        {label} {required && <span className="text-red-500">*</span>}
-      </label>
-      <textarea
-        id={name}
-        name={name}
-        value={value}
-        onChange={onChange}
-        placeholder={placeholder}
-        rows={rows}
-        required={required}
-        className={`shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${error ? 'border-red-500' : 'border-gray-300'}`}
-      ></textarea>
-      {error && <p className="text-red-500 text-xs italic mt-1">{error}</p>}
-    </div>
-  );
-};
-
-const LoadingSpinner = () => {
-  return (
-    <div className="flex justify-center items-center py-4">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-    </div>
-  );
-};
-
-const ErrorMessage = ({ message }) => {
-  if (!message) return null;
-  return (
-    <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative mb-4" role="alert">
-      <strong className="font-bold">Error!</strong>
-      <span className="block sm:inline"> {message}</span>
-    </div>
-  );
-};
-
-const Modal = ({ isOpen, onClose, children, title }) => {
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 bg-gray-600 bg-opacity-75 flex justify-center items-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md md:max-w-lg lg:max-w-xl p-6 relative transform transition-all duration-300 scale-100">
-        <div className="flex justify-between items-center border-b pb-3 mb-4">
-          <h3 className="text-xl font-semibold text-gray-800">{title}</h3>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-700 text-2xl leading-none">
-            &times;
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-};
-
-const Pagination = ({ currentPage, totalPages, onPageChange }) => {
-  const pages = Array.from({ length: totalPages }, (_, i) => i + 1);
-
-  return (
-    <nav className="flex justify-center items-center space-x-2 my-8">
-      <Button
-        onClick={() => onPageChange(currentPage - 1)}
-        disabled={currentPage === 1}
-        variant="secondary"
-        className="px-3 py-1 text-sm md:px-4 md:py-2"
-      >
-        Previous
-      </Button>
-      {pages.map((page) => (
-        <Button
-          key={page}
-          onClick={() => onPageChange(page)}
-          variant={currentPage === page ? 'primary' : 'secondary'}
-          className="px-3 py-1 text-sm md:px-4 md:py-2"
-        >
-          {page}
-        </Button>
-      ))}
-      <Button
-        onClick={() => onPageChange(currentPage + 1)}
-        disabled={currentPage === totalPages}
-        variant="secondary"
-        className="px-3 py-1 text-sm md:px-4 md:py-2"
-      >
-        Next
-      </Button>
-    </nav>
-  );
-};
-
-// --- Specific Application Components ---
-
-const Header = () => {
-  const { user, logout } = useContext(AuthContext);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-
-  return (
-    <header className="bg-blue-600 text-white shadow-md p-4 sticky top-0 z-40">
-      <div className="container mx-auto flex justify-between items-center flex-wrap">
-        <h1 className="text-2xl font-bold">SkillSwap</h1>
-        <button
-          className="md:hidden text-white text-2xl focus:outline-none"
-          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-        >
-          ☰
-        </button>
-        <nav className={`w-full md:w-auto md:flex ${isMobileMenuOpen ? 'block' : 'hidden'}`}>
-          <ul className="flex flex-col md:flex-row md:space-x-6 space-y-2 md:space-y-0 mt-4 md:mt-0 text-lg">
-            <li><a href="#" className="hover:text-blue-200">Home</a></li>
-            <li><a href="#browse-skills" className="hover:text-blue-200">Browse Skills</a></li>
-            {user ? (
-              <>
-                <li><a href="#my-profile" className="hover:text-blue-200">My Profile</a></li>
-                <li><Button onClick={logout} variant="outline" className="w-full md:w-auto">Logout</Button></li>
-              </>
-            ) : (
-              <>
-                <li><a href="#login" className="hover:text-blue-200">Login</a></li>
-                <li><a href="#signup" className="hover:text-blue-200">Signup</a></li>
-              </>
-            )}
-          </ul>
-        </nav>
-      </div>
-    </header>
-  );
-};
-
-const Footer = () => {
-  return (
-    <footer className="bg-gray-800 text-white p-6 mt-8">
-      <div className="container mx-auto text-center text-sm">
-        <p>&copy; {new Date().getFullYear()} SkillSwap. All rights reserved.</p>
-        <div className="mt-2 space-x-4">
-          <a href="#" className="hover:text-gray-300">Privacy Policy</a>
-          <a href="#" className="hover:text-gray-300">Terms of Service</a>
-        </div>
-      </div>
-    </footer>
-  );
-};
-
-const Layout = ({ children }) => {
-  return (
-    <div className="min-h-screen flex flex-col bg-gray-100 font-inter">
-      <Header />
-      <main className="flex-grow container mx-auto p-4 sm:p-6 lg:p-8">
-        {children}
-      </main>
-      <Footer />
-    </div>
-  );
-};
-
-const AuthForm = ({ type, onSubmit, isLoading, error }) => {
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    password: '',
+// --- 3. MongoDB Connection ---
+mongoose.connect(MONGODB_URI)
+  .then(() => console.log('Connected to MongoDB'))
+  .catch(err => {
+    console.error('MongoDB connection error:', err);
+    process.exit(1); // Exit process on connection failure
   });
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-  };
+// --- 4. Models (Mongoose Schemas) ---
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    onSubmit(formData);
-  };
+// User Schema
+const userSchema = new mongoose.Schema({
+  name: { type: String, required: true, trim: true },
+  email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+  password: { type: String, required: true, minlength: 6 },
+  profilePhoto: { type: String, default: 'https://res.cloudinary.com/demo/image/upload/w_100,h_100,c_fill,g_auto/sample.jpg' }, // Default placeholder
+  location: { type: String, trim: true },
+  skillsOffered: [{ type: String, trim: true }],
+  skillsWanted: [{ type: String, trim: true }],
+  availability: { type: String, trim: true },
+  isPublic: { type: Boolean, default: true },
+  role: { type: String, enum: ['user', 'admin'], default: 'user' },
+  isVerified: { type: Boolean, default: false },
+  otp: { type: String },
+  otpExpires: { type: Date },
+  passwordResetToken: { type: String },
+  passwordResetExpires: { type: Date },
+}, { timestamps: true });
 
-  return (
-    <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-md w-full max-w-sm mx-auto">
-      <h2 className="text-2xl font-bold text-center mb-6 text-gray-800">
-        {type === 'login' ? 'Login' : 'Sign Up'}
-      </h2>
-      <ErrorMessage message={error} />
-      {type === 'signup' && (
-        <InputField
-          label="Name"
-          type="text"
-          name="name"
-          value={formData.name}
-          onChange={handleChange}
-          placeholder="Your Name"
-          required
-        />
-      )}
-      <InputField
-        label="Email"
-        type="email"
-        name="email"
-        value={formData.email}
-        onChange={handleChange}
-        placeholder="your@example.com"
-        required
-      />
-      <InputField
-        label="Password"
-        type="password"
-        name="password"
-        value={formData.password}
-        onChange={handleChange}
-        placeholder="********"
-        required
-      />
-      <Button type="submit" className="w-full mt-4" disabled={isLoading}>
-        {isLoading ? <LoadingSpinner /> : (type === 'login' ? 'Login' : 'Sign Up')}
-      </Button>
-      {type === 'login' && (
-        <p className="text-center text-sm mt-4 text-gray-600">
-          Don't have an account? <a href="#signup" className="text-blue-600 hover:underline">Sign Up</a>
-        </p>
-      )}
-      {type === 'signup' && (
-        <p className="text-center text-sm mt-4 text-gray-600">
-          Already have an account? <a href="#login" className="text-blue-600 hover:underline">Login</a>
-        </p>
-      )}
-    </form>
-  );
-};
+// Pre-save hook to hash password
+userSchema.pre('save', async function (next) {
+  if (this.isModified('password')) {
+    this.password = await bcrypt.hash(this.password, 10);
+  }
+  next();
+});
 
-const LoginPage = () => {
-  const { login } = useContext(AuthContext);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
+const User = mongoose.model('User', userSchema);
 
-  const handleLogin = async ({ email, password }) => {
-    setIsLoading(true);
-    setError('');
-    const result = await login(email, password);
-    if (!result.success) {
-      setError(result.error);
-    }
-    setIsLoading(false);
-  };
+// SwapRequest Schema
+const swapRequestSchema = new mongoose.Schema({
+  sender: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  recipient: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  skillsInvolved: [{ type: String, required: true, trim: true }],
+  message: { type: String, required: true, trim: true },
+  status: { type: String, enum: ['pending', 'accepted', 'rejected', 'cancelled'], default: 'pending' },
+}, { timestamps: true });
 
-  return (
-    <div className="py-8">
-      <AuthForm type="login" onSubmit={handleLogin} isLoading={isLoading} error={error} />
-    </div>
-  );
-};
+const SwapRequest = mongoose.model('SwapRequest', swapRequestSchema);
 
-const SignupPage = () => {
-  const { signup } = useContext(AuthContext);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
+// --- 5. Middleware ---
+app.use(express.json()); // Body parser for JSON requests
+app.use(cors()); // Enable CORS for all origins (adjust for production, e.g., { origin: 'http://localhost:3000' })
 
-  const handleSignup = async ({ name, email, password }) => {
-    setIsLoading(true);
-    setError('');
-    const result = await signup(name, email, password);
-    if (!result.success) {
-      setError(result.error);
-    }
-    setIsLoading(false);
-  };
+// Custom Error Handler Middleware (Centralized)
+app.use((err, req, res, next) => {
+  console.error(err.stack); // Log the stack trace for debugging
+  const statusCode = err.statusCode || 500;
+  const message = err.message || 'Something went wrong!';
+  res.status(statusCode).json({
+    success: false,
+    message: message,
+    // In production, you might not want to send the full error stack
+    // stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+  });
+});
 
-  return (
-    <div className="py-8">
-      <AuthForm type="signup" onSubmit={handleSignup} isLoading={isLoading} error={error} />
-    </div>
-  );
-};
+// --- 6. Authentication Middleware ---
 
-const SkillList = ({ skills, type, isEditable = false, onAddSkill, onRemoveSkill }) => {
-  const [newSkill, setNewSkill] = useState('');
+// Middleware to verify JWT token
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
-  const handleAdd = () => {
-    if (newSkill.trim() && onAddSkill) {
-      onAddSkill(newSkill.trim(), type);
-      setNewSkill('');
-    }
-  };
-
-  return (
-    <div className="mb-4">
-      <h3 className="text-lg font-semibold text-gray-700 mb-2">{type === 'offered' ? 'Skills Offered' : 'Skills Wanted'}</h3>
-      <div className="flex flex-wrap gap-2">
-        {skills.length > 0 ? (
-          skills.map((skill, index) => (
-            <span key={index} className="bg-blue-100 text-blue-800 text-sm font-medium px-3 py-1 rounded-full flex items-center">
-              {skill}
-              {isEditable && (
-                <button onClick={() => onRemoveSkill(skill, type)} className="ml-2 text-blue-600 hover:text-blue-800 focus:outline-none">
-                  &times;
-                </button>
-              )}
-            </span>
-          ))
-        ) : (
-          <p className="text-gray-500 text-sm">No {type} skills listed yet.</p>
-        )}
-      </div>
-      {isEditable && (
-        <div className="flex mt-3">
-          <input
-            type="text"
-            value={newSkill}
-            onChange={(e) => setNewSkill(e.target.value)}
-            placeholder={`Add a new ${type === 'offered' ? 'offered' : 'wanted'} skill`}
-            className="flex-grow shadow appearance-none border rounded-l-lg py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-          <Button onClick={handleAdd} className="rounded-l-none">Add</Button>
-        </div>
-      )}
-    </div>
-  );
-};
-
-const AvailabilityDisplay = ({ availability, isEditable = false, onEditAvailability }) => {
-  const [isEditing, setIsEditing] = useState(false);
-  const [editedAvailability, setEditedAvailability] = useState(availability);
-
-  const handleSave = () => {
-    if (onEditAvailability) {
-      onEditAvailability(editedAvailability);
-      setIsEditing(false);
-    }
-  };
-
-  return (
-    <div className="mb-4">
-      <h3 className="text-lg font-semibold text-gray-700 mb-2">Availability</h3>
-      {isEditing ? (
-        <div className="flex">
-          <input
-            type="text"
-            value={editedAvailability}
-            onChange={(e) => setEditedAvailability(e.target.value)}
-            className="flex-grow shadow appearance-none border rounded-l-lg py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-          <Button onClick={handleSave} className="rounded-l-none">Save</Button>
-          <Button onClick={() => setIsEditing(false)} variant="secondary" className="ml-2">Cancel</Button>
-        </div>
-      ) : (
-        <p className="text-gray-600">
-          {availability || 'Not specified.'}
-          {isEditable && (
-            <Button onClick={() => setIsEditing(true)} variant="secondary" className="ml-4 px-3 py-1 text-sm">Edit</Button>
-          )}
-        </p>
-      )}
-    </div>
-  );
-};
-
-const UserProfile = ({ user, isEditable = false, onUpdateProfile }) => {
-  const [isEditing, setIsEditing] = useState(false);
-  const [profileData, setProfileData] = useState(user);
-
-  useEffect(() => {
-    setProfileData(user);
-  }, [user]);
-
-  const handleChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setProfileData((prev) => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value,
-    }));
-  };
-
-  const handleSkillChange = (skill, type, action) => {
-    setProfileData((prev) => {
-      const skillsArray = type === 'offered' ? [...prev.skillsOffered] : [...prev.skillsWanted];
-      if (action === 'add' && !skillsArray.includes(skill)) {
-        skillsArray.push(skill);
-      } else if (action === 'remove') {
-        return {
-          ...prev,
-          [type === 'offered' ? 'skillsOffered' : 'skillsWanted']: skillsArray.filter(s => s !== skill)
-        };
-      }
-      return {
-        ...prev,
-        [type === 'offered' ? 'skillsOffered' : 'skillsWanted']: skillsArray
-      };
-    });
-  };
-
-  const handleSave = () => {
-    if (onUpdateProfile) {
-      onUpdateProfile(profileData);
-      setIsEditing(false);
-    }
-  };
-
-  return (
-    <div className="bg-white p-6 rounded-lg shadow-md max-w-4xl mx-auto">
-      <div className="flex flex-col md:flex-row items-center md:items-start md:space-x-6">
-        <div className="flex-shrink-0 mb-4 md:mb-0">
-          <img
-            src={user.profilePhoto || 'https://placehold.co/150x150/cccccc/333333?text=No+Photo'}
-            alt={`${user.name}'s profile`}
-            className="w-32 h-32 rounded-full object-cover border-4 border-blue-200"
-          />
-        </div>
-        <div className="flex-grow text-center md:text-left">
-          {isEditing ? (
-            <>
-              <InputField
-                label="Name"
-                name="name"
-                value={profileData.name}
-                onChange={handleChange}
-                required
-              />
-              <InputField
-                label="Location"
-                name="location"
-                value={profileData.location}
-                onChange={handleChange}
-              />
-              <div className="mb-4">
-                <label className="inline-flex items-center">
-                  <input
-                    type="checkbox"
-                    name="isPublic"
-                    checked={profileData.isPublic}
-                    onChange={handleChange}
-                    className="form-checkbox h-5 w-5 text-blue-600 rounded"
-                  />
-                  <span className="ml-2 text-gray-700">Make profile public</span>
-                </label>
-              </div>
-            </>
-          ) : (
-            <>
-              <h2 className="text-3xl font-bold text-gray-800">{user.name}</h2>
-              {user.location && <p className="text-gray-600 text-lg mt-1">{user.location}</p>}
-              <p className="text-gray-500 text-sm mt-2">Status: {user.isPublic ? 'Public' : 'Private'}</p>
-            </>
-          )}
-        </div>
-      </div>
-
-      <div className="mt-6 border-t pt-6">
-        <SkillList
-          skills={profileData.skillsOffered}
-          type="offered"
-          isEditable={isEditing}
-          onAddSkill={(skill) => handleSkillChange(skill, 'offered', 'add')}
-          onRemoveSkill={(skill) => handleSkillChange(skill, 'offered', 'remove')}
-        />
-        <SkillList
-          skills={profileData.skillsWanted}
-          type="wanted"
-          isEditable={isEditing}
-          onAddSkill={(skill) => handleSkillChange(skill, 'wanted', 'add')}
-          onRemoveSkill={(skill) => handleSkillChange(skill, 'wanted', 'remove')}
-        />
-        <AvailabilityDisplay
-          availability={profileData.availability}
-          isEditable={isEditing}
-          onEditAvailability={(newAvailability) => setProfileData((prev) => ({ ...prev, availability: newAvailability }))}
-        />
-      </div>
-
-      {isEditable && (
-        <div className="mt-6 flex justify-end space-x-4">
-          {isEditing ? (
-            <>
-              <Button onClick={handleSave}>Save Changes</Button>
-              <Button variant="secondary" onClick={() => { setIsEditing(false); setProfileData(user); }}>Cancel</Button>
-            </>
-          ) : (
-            <Button onClick={() => setIsEditing(true)}>Edit Profile</Button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
-
-const EditProfileForm = ({ initialData, onSubmit, isLoading, error }) => {
-  const [formData, setFormData] = useState(initialData);
-
-  const handleChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value,
-    }));
-  };
-
-  const handleSkillChange = (skill, type, action) => {
-    setFormData((prev) => {
-      const skillsArray = type === 'offered' ? [...prev.skillsOffered] : [...prev.skillsWanted];
-      if (action === 'add' && !skillsArray.includes(skill)) {
-        skillsArray.push(skill);
-      } else if (action === 'remove') {
-        return {
-          ...prev,
-          [type === 'offered' ? 'skillsOffered' : 'skillsWanted']: skillsArray.filter(s => s !== skill)
-        };
-      }
-      return {
-        ...prev,
-        [type === 'offered' ? 'skillsOffered' : 'skillsWanted']: skillsArray
-      };
-    });
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    onSubmit(formData);
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-md w-full max-w-2xl mx-auto">
-      <h2 className="text-2xl font-bold text-center mb-6 text-gray-800">Edit Your Profile</h2>
-      <ErrorMessage message={error} />
-
-      <InputField
-        label="Name"
-        name="name"
-        value={formData.name}
-        onChange={handleChange}
-        required
-      />
-      <InputField
-        label="Location"
-        name="location"
-        value={formData.location}
-        onChange={handleChange}
-      />
-      <div className="mb-4">
-        <label className="inline-flex items-center">
-          <input
-            type="checkbox"
-            name="isPublic"
-            checked={formData.isPublic}
-            onChange={handleChange}
-            className="form-checkbox h-5 w-5 text-blue-600 rounded"
-          />
-          <span className="ml-2 text-gray-700">Make profile public</span>
-        </label>
-      </div>
-
-      <SkillList
-        skills={formData.skillsOffered}
-        type="offered"
-        isEditable={true}
-        onAddSkill={(skill) => handleSkillChange(skill, 'offered', 'add')}
-        onRemoveSkill={(skill) => handleSkillChange(skill, 'offered', 'remove')}
-      />
-      <SkillList
-        skills={formData.skillsWanted}
-        type="wanted"
-        isEditable={true}
-        onAddSkill={(skill) => handleSkillChange(skill, 'wanted', 'add')}
-        onRemoveSkill={(skill) => handleSkillChange(skill, 'wanted', 'remove')}
-      />
-      <AvailabilityDisplay
-        availability={formData.availability}
-        isEditable={true}
-        onEditAvailability={(newAvailability) => setFormData((prev) => ({ ...prev, availability: newAvailability }))}
-      />
-
-      <Button type="submit" className="w-full mt-6" disabled={isLoading}>
-        {isLoading ? <LoadingSpinner /> : 'Save Profile'}
-      </Button>
-    </form>
-  );
-};
-
-const SwapRequestItem = ({ request, onAccept, onReject, onDelete }) => {
-  const { user } = useContext(AuthContext);
-  const isIncoming = request.recipientId === user?.id;
-  const isPending = request.status === 'pending';
-
-  return (
-    <div className="bg-white p-4 rounded-lg shadow-sm mb-4 border border-gray-200">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-2">
-        <h3 className="text-lg font-semibold text-gray-800">
-          Swap Request {isIncoming ? 'From' : 'To'}: {isIncoming ? request.senderName : request.recipientName}
-        </h3>
-        <span className={`px-3 py-1 rounded-full text-sm font-medium
-          ${request.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : ''}
-          ${request.status === 'accepted' ? 'bg-green-100 text-green-800' : ''}
-          ${request.status === 'rejected' ? 'bg-red-100 text-red-800' : ''}
-          ${request.status === 'deleted' ? 'bg-gray-100 text-gray-800' : ''}
-        `}>
-          {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
-        </span>
-      </div>
-      <p className="text-gray-600 text-sm mb-2">
-        <span className="font-medium">Skills Involved:</span> {request.skillsInvolved.join(', ')}
-      </p>
-      <p className="text-gray-700 mb-3">{request.message}</p>
-
-      <div className="flex flex-wrap gap-2">
-        {isIncoming && isPending && (
-          <>
-            <Button onClick={() => onAccept(request.id)} className="text-sm">Accept</Button>
-            <Button onClick={() => onReject(request.id)} variant="danger" className="text-sm">Reject</Button>
-          </>
-        )}
-        {!isIncoming && isPending && (
-          <Button onClick={() => onDelete(request.id)} variant="danger" className="text-sm">Delete Request</Button>
-        )}
-        {/* Optionally show delete for accepted/rejected by sender/recipient */}
-        {((!isIncoming && (request.status === 'accepted' || request.status === 'rejected')) ||
-          (isIncoming && (request.status === 'accepted' || request.status === 'rejected'))) && (
-          <Button onClick={() => onDelete(request.id)} variant="secondary" className="text-sm">Archive</Button>
-        )}
-      </div>
-    </div>
-  );
-};
-
-const SwapRequestList = ({ requests, type }) => {
-  if (requests.length === 0) {
-    return (
-      <div className="bg-white p-6 rounded-lg shadow-md text-center text-gray-600">
-        <p>No {type} swap requests found.</p>
-      </div>
-    );
+  if (!token) {
+    return res.status(401).json({ success: false, message: 'Access Denied: No token provided.' });
   }
 
-  return (
-    <div className="grid gap-4">
-      {requests.map((request) => (
-        <SwapRequestItem
-          key={request.id}
-          request={request}
-          onAccept={(id) => console.log(`Accept ${id}`)} // TODO: API call
-          onReject={(id) => console.log(`Reject ${id}`)} // TODO: API call
-          onDelete={(id) => console.log(`Delete ${id}`)} // TODO: API call
-        />
-      ))}
-    </div>
-  );
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      if (err.name === 'TokenExpiredError') {
+        return res.status(401).json({ success: false, message: 'Access Denied: Token expired.' });
+      }
+      return res.status(403).json({ success: false, message: 'Access Denied: Invalid token.' });
+    }
+    req.user = user; // Attach user payload (id, role) to request
+    next();
+  });
 };
 
-const MyProfilePage = () => {
-  const { user, loadingAuth, setUser } = useContext(AuthContext);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [mySwapRequests, setMySwapRequests] = useState([]); // Dummy data
+// Middleware to authorize user roles
+const authorizeRoles = (...roles) => {
+  return (req, res, next) => {
+    if (!req.user || !roles.includes(req.user.role)) {
+      return res.status(403).json({ success: false, message: 'Access Denied: You do not have the required permissions.' });
+    }
+    next();
+  };
+};
 
-  useEffect(() => {
-    // Dummy data for swap requests
-    if (user) {
-      setMySwapRequests([
-        {
-          id: 'swap1',
-          senderId: 'user123',
-          senderName: 'John Doe',
-          recipientId: 'user456',
-          recipientName: 'Jane Smith',
-          skillsInvolved: ['React', 'UI/UX Design'],
-          message: 'Hi Jane, I\'d love to swap React skills for your UI/UX expertise!',
+// --- 7. Utility Functions (Email, OTP, Image Upload) ---
+
+// Function to send email
+const sendEmail = async (to, subject, text, html) => {
+  if (!transporter) {
+    console.error('Nodemailer transporter not configured. Cannot send email.');
+    return { success: false, message: 'Email service not available.' };
+  }
+  try {
+    await transporter.sendMail({
+      from: NODEMAILER_EMAIL,
+      to,
+      subject,
+      text,
+      html,
+    });
+    console.log(`Email sent to ${to}`);
+    return { success: true };
+  } catch (error) {
+    console.error(`Error sending email to ${to}:`, error);
+    return { success: false, message: 'Failed to send email.' };
+  }
+};
+
+// Function to generate OTP
+const generateOtp = () => {
+  return crypto.randomInt(100000, 999999).toString(); // 6-digit OTP
+};
+
+// Function to upload image to Cloudinary (conceptual, requires file handling middleware like multer)
+// This function assumes `imagePath` is a local file path or a base64 string.
+// For actual file uploads from client, you'd integrate `multer` middleware.
+const uploadImageToCloudinary = async (imagePath) => {
+  if (!cloudinary.config().cloud_name) {
+    console.warn('Cloudinary not configured. Skipping image upload.');
+    return null;
+  }
+  try {
+    const result = await cloudinary.uploader.upload(imagePath, {
+      folder: 'skill_swap_profiles', // Optional: specify a folder for organization
+      // resource_type: 'auto', // Automatically detect file type
+    });
+    return result.secure_url; // Return the URL of the uploaded image
+  } catch (error) {
+    console.error('Error uploading image to Cloudinary:', error);
+    // In a real app, you might throw an error or handle it more gracefully
+    return null;
+  }
+};
+
+// --- 8. Controllers ---
+
+// --- Auth Controllers ---
+const authController = {
+  signup: [
+    body('name').notEmpty().withMessage('Name is required'),
+    body('email').isEmail().withMessage('Valid email is required'),
+    body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters long'),
+    async (req, res, next) => {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ success: false, errors: errors.array() });
+      }
+
+      const { name, email, password } = req.body;
+      try {
+        let user = await User.findOne({ email });
+        if (user) {
+          return res.status(400).json({ success: false, message: 'User with this email already exists.' });
+        }
+
+        const otp = generateOtp();
+        const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // OTP valid for 10 minutes
+
+        user = new User({ name, email, password, otp, otpExpires, isVerified: false });
+        await user.save(); // Password will be hashed by pre-save hook
+
+        const emailSent = await sendEmail(
+          email,
+          'Skill Swap: Verify Your Email',
+          `Your OTP for Skill Swap is: ${otp}. It is valid for 10 minutes.`,
+          `<p>Your OTP for Skill Swap is: <strong>${otp}</strong></p><p>It is valid for 10 minutes.</p>`
+        );
+
+        if (!emailSent.success) {
+          console.warn('OTP email failed to send for new user:', email);
+          // In production, you might roll back user creation or mark for manual verification.
+          // For now, we proceed but log the warning.
+        }
+
+        res.status(201).json({ success: true, message: 'User registered successfully. Please verify your email with the OTP sent to your inbox.', emailForVerification: email });
+      } catch (err) {
+        next(err); // Pass error to central error handler
+      }
+    }
+  ],
+
+  verifyOtp: [
+    body('email').isEmail().withMessage('Valid email is required'),
+    body('otp').isLength({ min: 6, max: 6 }).withMessage('OTP must be 6 digits'),
+    async (req, res, next) => {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ success: false, errors: errors.array() });
+      }
+
+      const { email, otp } = req.body;
+      try {
+        const user = await User.findOne({ email });
+
+        if (!user) {
+          return res.status(404).json({ success: false, message: 'User not found.' });
+        }
+        if (user.isVerified) {
+          return res.status(400).json({ success: false, message: 'Email already verified.' });
+        }
+        if (user.otp !== otp || user.otpExpires < Date.now()) {
+          return res.status(400).json({ success: false, message: 'Invalid or expired OTP.' });
+        }
+
+        user.isVerified = true;
+        user.otp = undefined; // Clear OTP
+        user.otpExpires = undefined; // Clear OTP expiry
+        await user.save();
+
+        const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '1h' });
+        res.status(200).json({ success: true, message: 'Email verified successfully!', token, user: { id: user._id, name: user.name, email: user.email, role: user.role, isVerified: user.isVerified, profilePhoto: user.profilePhoto } });
+      } catch (err) {
+        next(err);
+      }
+    }
+  ],
+
+  sendOtp: [
+    body('email').isEmail().withMessage('Valid email is required'),
+    async (req, res, next) => {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ success: false, errors: errors.array() });
+      }
+
+      const { email } = req.body;
+      try {
+        const user = await User.findOne({ email });
+        if (!user) {
+          // Send a generic success message to prevent email enumeration
+          return res.status(200).json({ success: true, message: 'If an account with that email exists, a new OTP has been sent.' });
+        }
+        if (user.isVerified) {
+          return res.status(400).json({ success: false, message: 'Email already verified. Please login.' });
+        }
+
+        const otp = generateOtp();
+        const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // OTP valid for 10 minutes
+
+        user.otp = otp;
+        user.otpExpires = otpExpires;
+        await user.save();
+
+        const emailSent = await sendEmail(
+          email,
+          'Skill Swap: Your New OTP',
+          `Your new OTP for Skill Swap is: ${otp}. It is valid for 10 minutes.`,
+          `<p>Your new OTP for Skill Swap is: <strong>${otp}</strong></p><p>It is valid for 10 minutes.</p>`
+        );
+
+        if (!emailSent.success) {
+          return res.status(500).json({ success: false, message: 'Failed to send OTP email. Please try again later.' });
+        }
+
+        res.status(200).json({ success: true, message: 'New OTP sent to your email.' });
+      } catch (err) {
+        next(err);
+      }
+    }
+  ],
+
+  login: [
+    body('email').isEmail().withMessage('Valid email is required'),
+    body('password').notEmpty().withMessage('Password is required'),
+    async (req, res, next) => {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ success: false, errors: errors.array() });
+      }
+
+      const { email, password } = req.body;
+      try {
+        const user = await User.findOne({ email });
+        if (!user) {
+          return res.status(400).json({ success: false, message: 'Invalid credentials.' });
+        }
+
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+          return res.status(400).json({ success: false, message: 'Invalid credentials.' });
+        }
+
+        if (!user.isVerified) {
+          return res.status(403).json({ success: false, message: 'Please verify your email address first.' });
+        }
+
+        const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '1h' }); // Token expires in 1 hour
+        res.status(200).json({ success: true, message: 'Logged in successfully!', token, user: { id: user._id, name: user.name, email: user.email, role: user.role, isVerified: user.isVerified, profilePhoto: user.profilePhoto } });
+      } catch (err) {
+        next(err);
+      }
+    }
+  ],
+
+  forgotPassword: [
+    body('email').isEmail().withMessage('Valid email is required'),
+    async (req, res, next) => {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ success: false, errors: errors.array() });
+      }
+
+      const { email } = req.body;
+      try {
+        const user = await User.findOne({ email });
+        if (!user) {
+          // Send a generic success message even if user not found to prevent email enumeration
+          return res.status(200).json({ success: true, message: 'If an account with that email exists, a password reset link has been sent.' });
+        }
+
+        // Generate a unique, cryptographically secure token
+        const resetToken = crypto.randomBytes(32).toString('hex');
+        // Hash the token before saving to DB, but send the unhashed one to user
+        const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+
+        user.passwordResetToken = hashedToken;
+        user.passwordResetExpires = Date.now() + 3600000; // Token valid for 1 hour
+        await user.save();
+
+        const resetUrl = `${req.protocol}://${req.get('host')}/api/auth/reset-password/${resetToken}`; // Adjust frontend URL as needed
+        // In a real app, this should link to your frontend reset password page, e.g., `http://localhost:3000/#/reset-password?token=${resetToken}`
+
+        const emailSent = await sendEmail(
+          user.email,
+          'Skill Swap: Password Reset Request',
+          `You are receiving this because you (or someone else) have requested the reset of the password for your account.\n\n
+          Please click on the following link, or paste this into your browser to complete the process:\n\n
+          ${resetUrl}\n\n
+          If you did not request this, please ignore this email and your password will remain unchanged.`,
+          `<p>You are receiving this because you (or someone else) have requested the reset of the password for your account.</p>
+          <p>Please click on the following link, or paste this into your browser to complete the process:</p>
+          <p><a href="${resetUrl}">Reset Password</a></p>
+          <p>If you did not request this, please ignore this email and your password will remain unchanged.</p>`
+        );
+
+        if (!emailSent.success) {
+          user.passwordResetToken = undefined;
+          user.passwordResetExpires = undefined;
+          await user.save();
+          return res.status(500).json({ success: false, message: 'Failed to send password reset email. Please try again later.' });
+        }
+
+        res.status(200).json({ success: true, message: 'Password reset link sent to your email.' });
+      } catch (err) {
+        next(err);
+      }
+    }
+  ],
+
+  resetPassword: [
+    body('token').notEmpty().withMessage('Token is required'),
+    body('newPassword').isLength({ min: 6 }).withMessage('New password must be at least 6 characters long'),
+    async (req, res, next) => {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ success: false, errors: errors.array() });
+      }
+
+      const { token, newPassword } = req.body;
+      // Hash the token received from the user to compare with the hashed token in DB
+      const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+      try {
+        const user = await User.findOne({
+          passwordResetToken: hashedToken,
+          passwordResetExpires: { $gt: Date.now() } // Token must not be expired
+        });
+
+        if (!user) {
+          return res.status(400).json({ success: false, message: 'Password reset token is invalid or has expired.' });
+        }
+
+        user.password = newPassword; // Pre-save hook will hash this
+        user.passwordResetToken = undefined;
+        user.passwordResetExpires = undefined;
+        user.isVerified = true; // Ensure user is verified after password reset
+        await user.save();
+
+        res.status(200).json({ success: true, message: 'Password has been reset successfully!' });
+      } catch (err) {
+        next(err);
+      }
+    }
+  ],
+
+  // Get current user details (for authenticated users)
+  getMe: async (req, res, next) => {
+    try {
+      const user = await User.findById(req.user.id).select('-password -otp -otpExpires -passwordResetToken -passwordResetExpires');
+      if (!user) {
+        return res.status(404).json({ success: false, message: 'User not found.' });
+      }
+      res.status(200).json({ success: true, user });
+    } catch (err) {
+      next(err);
+    }
+  }
+};
+
+// --- User Controllers ---
+const userController = {
+  // Get all public users (for browse skills)
+  getAllUsers: async (req, res, next) => {
+    try {
+      const users = await User.find({ isPublic: true }).select('-password -otp -otpExpires -passwordResetToken -passwordResetExpires');
+      res.status(200).json({ success: true, users });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  // Get a specific public user's profile
+  getUserById: async (req, res, next) => {
+    try {
+      const user = await User.findById(req.params.id).select('-password -otp -otpExpires -passwordResetToken -passwordResetExpires');
+      if (!user || !user.isPublic) {
+        return res.status(404).json({ success: false, message: 'User not found or profile is private.' });
+      }
+      res.status(200).json({ success: true, user });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  // Update user's own profile
+  updateProfile: [
+    authenticateToken,
+    body('name').optional().notEmpty().withMessage('Name cannot be empty'),
+    body('email').optional().isEmail().withMessage('Valid email is required'),
+    async (req, res, next) => {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ success: false, errors: errors.array() });
+      }
+
+      const userId = req.user.id;
+      const updates = req.body; // Can include name, location, skillsOffered, skillsWanted, availability, isPublic, profilePhoto
+
+      try {
+        const user = await User.findById(userId);
+        if (!user) {
+          return res.status(404).json({ success: false, message: 'User not found.' });
+        }
+
+        // Prevent updating role or isVerified directly via this endpoint
+        delete updates.role;
+        delete updates.isVerified;
+        delete updates.password; // Password changes should go through specific reset/change password flows
+
+        // Handle profile photo upload if provided (conceptual)
+        if (updates.profilePhoto && updates.profilePhoto.startsWith('data:image')) {
+          // This assumes updates.profilePhoto is a base64 string
+          const imageUrl = await uploadImageToCloudinary(updates.profilePhoto);
+          if (imageUrl) {
+            updates.profilePhoto = imageUrl;
+          } else {
+            console.warn('Failed to upload profile photo to Cloudinary.');
+            delete updates.profilePhoto; // Don't update if upload failed
+          }
+        }
+
+        const updatedUser = await User.findByIdAndUpdate(userId, { $set: updates }, { new: true, runValidators: true }).select('-password -otp -otpExpires -passwordResetToken -passwordResetExpires');
+
+        res.status(200).json({ success: true, message: 'Profile updated successfully!', user: updatedUser });
+      } catch (err) {
+        next(err);
+      }
+    }
+  ],
+
+  // Admin: Ban a user
+  banUser: [
+    authenticateToken,
+    authorizeRoles('admin'),
+    async (req, res, next) => {
+      try {
+        const user = await User.findById(req.params.id);
+        if (!user) {
+          return res.status(404).json({ success: false, message: 'User not found.' });
+        }
+        if (user.role === 'admin') {
+          return res.status(403).json({ success: false, message: 'Cannot ban another admin.' });
+        }
+        user.status = 'banned'; // Assuming a 'status' field in user schema for banned users
+        await user.save();
+        res.status(200).json({ success: true, message: `User ${user.email} has been banned.` });
+      } catch (err) {
+        next(err);
+      }
+    }
+  ],
+
+  // Admin: Unban a user
+  unbanUser: [
+    authenticateToken,
+    authorizeRoles('admin'),
+    async (req, res, next) => {
+      try {
+        const user = await User.findById(req.params.id);
+        if (!user) {
+          return res.status(404).json({ success: false, message: 'User not found.' });
+        }
+        user.status = 'active'; // Assuming a 'status' field
+        await user.save();
+        res.status(200).json({ success: true, message: `User ${user.email} has been unbanned.` });
+      } catch (err) {
+        next(err);
+      }
+    }
+  ],
+};
+
+// --- Swap Request Controllers ---
+const swapController = {
+  // Create a new swap request
+  createSwapRequest: [
+    authenticateToken,
+    body('recipientId').notEmpty().withMessage('Recipient ID is required'),
+    body('skillsInvolved').isArray({ min: 1 }).withMessage('At least one skill must be involved'),
+    body('message').notEmpty().withMessage('Message is required'),
+    async (req, res, next) => {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ success: false, errors: errors.array() });
+      }
+
+      const { recipientId, skillsInvolved, message } = req.body;
+      const senderId = req.user.id;
+
+      if (senderId === recipientId) {
+        return res.status(400).json({ success: false, message: 'Cannot send a swap request to yourself.' });
+      }
+
+      try {
+        const recipient = await User.findById(recipientId);
+        if (!recipient || !recipient.isPublic) {
+          return res.status(404).json({ success: false, message: 'Recipient not found or their profile is private.' });
+        }
+
+        const newRequest = new SwapRequest({
+          sender: senderId,
+          recipient: recipientId,
+          skillsInvolved,
+          message,
           status: 'pending',
-        },
-        {
-          id: 'swap2',
-          senderId: 'user789',
-          senderName: 'Mike Johnson',
-          recipientId: 'user123',
-          recipientName: 'John Doe',
-          skillsInvolved: ['Python', 'Node.js'],
-          message: 'Hey John, interested in exchanging Python knowledge for Node.js help?',
-          status: 'accepted',
-        },
-        {
-          id: 'swap3',
-          senderId: 'user101',
-          senderName: 'Sarah Lee',
-          recipientId: 'user123',
-          recipientName: 'John Doe',
-          skillsInvolved: ['Photography', 'MongoDB'],
-          message: 'Hi John, I saw you need MongoDB help. I can offer photography lessons.',
-          status: 'pending',
-        },
-      ]);
-    }
-  }, [user]);
+        });
+        await newRequest.save();
 
-  const handleUpdateProfile = async (updatedProfile) => {
-    setIsLoading(true);
-    setError('');
-    // TODO: API call to update user profile
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        setUser(updatedProfile); // Update local context state
-        localStorage.setItem('skillSwapUser', JSON.stringify(updatedProfile)); // Update local storage
-        setIsLoading(false);
-        resolve({ success: true });
-      }, 500);
-    });
-  };
+        // Optionally send email notification to recipient
+        const sender = await User.findById(senderId);
+        if (sender && transporter) {
+          await sendEmail(
+            recipient.email,
+            'Skill Swap: New Swap Request!',
+            `You have received a new skill swap request from ${sender.name}. Check your dashboard to respond.`,
+            `<p>You have received a new skill swap request from <strong>${sender.name}</strong>.</p>
+            <p>Message: "${message}"</p>
+            <p>Skills involved: ${skillsInvolved.join(', ')}</p>
+            <p>Please log in to your Skill Swap dashboard to respond.</p>`
+          );
+        }
 
-  if (loadingAuth) {
-    return <LoadingSpinner />;
-  }
-
-  if (!user) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-lg text-gray-700">Please <a href="#login" className="text-blue-600 hover:underline">log in</a> to view your profile.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-8">
-      <h2 className="text-3xl font-bold text-gray-800 text-center mb-6">My Profile</h2>
-      <UserProfile user={user} isEditable={true} onUpdateProfile={handleUpdateProfile} />
-
-      <h3 className="text-2xl font-bold text-gray-800 mt-10 mb-4">My Swap Requests</h3>
-      <SwapRequestList requests={mySwapRequests} type="my" />
-    </div>
-  );
-};
-
-const SearchBar = ({ onSearch, placeholder }) => {
-  const [query, setQuery] = useState('');
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    onSearch(query);
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="flex w-full max-w-xl mx-auto mb-8">
-      <input
-        type="text"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder={placeholder}
-        className="flex-grow shadow appearance-none border rounded-l-lg py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-      />
-      <Button type="submit" className="rounded-l-none">Search</Button>
-    </form>
-  );
-};
-
-const UserCard = ({ user, onClick }) => {
-  return (
-    <div
-      className="bg-white rounded-lg shadow-md p-4 flex flex-col items-center text-center cursor-pointer hover:shadow-lg transition-shadow duration-200"
-      onClick={() => onClick(user.id)}
-    >
-      <img
-        src={user.profilePhoto || 'https://placehold.co/100x100/cccccc/333333?text=No+Photo'}
-        alt={`${user.name}'s profile`}
-        className="w-24 h-24 rounded-full object-cover mb-3 border-2 border-blue-200"
-      />
-      <h3 className="text-xl font-semibold text-gray-800 mb-1">{user.name}</h3>
-      {user.location && <p className="text-gray-600 text-sm mb-2">{user.location}</p>}
-      <div className="w-full">
-        <SkillList skills={user.skillsOffered} type="offered" />
-        <SkillList skills={user.skillsWanted} type="wanted" />
-      </div>
-    </div>
-  );
-};
-
-const BrowseSkillsPage = () => {
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const usersPerPage = 6; // Adjust as needed
-
-  // Dummy data for users
-  const dummyUsers = [
-    {
-      id: 'user456',
-      name: 'Jane Smith',
-      location: 'London, UK',
-      profilePhoto: 'https://placehold.co/150x150/007bff/ffffff?text=JS',
-      skillsOffered: ['UI/UX Design', 'Figma', 'Sketch'],
-      skillsWanted: ['React', 'Marketing'],
-      availability: 'Weekdays',
-      isPublic: true,
-    },
-    {
-      id: 'user789',
-      name: 'Mike Johnson',
-      location: 'Berlin, Germany',
-      profilePhoto: 'https://placehold.co/150x150/007bff/ffffff?text=MJ',
-      skillsOffered: ['Python', 'Data Science', 'Machine Learning'],
-      skillsWanted: ['Node.js', 'DevOps'],
-      availability: 'Evenings',
-      isPublic: true,
-    },
-    {
-      id: 'user101',
-      name: 'Sarah Lee',
-      location: 'Sydney, Australia',
-      profilePhoto: 'https://placehold.co/150x150/007bff/ffffff?text=SL',
-      skillsOffered: ['Photography', 'Video Editing', 'Graphic Design'],
-      skillsWanted: ['Web Development', 'SEO'],
-      availability: 'Weekends',
-      isPublic: true,
-    },
-    {
-      id: 'user102',
-      name: 'David Kim',
-      location: 'Seoul, South Korea',
-      profilePhoto: 'https://placehold.co/150x150/007bff/ffffff?text=DK',
-      skillsOffered: ['Korean Language', 'Translation'],
-      skillsWanted: ['English Language', 'Public Speaking'],
-      availability: 'Anytime',
-      isPublic: true,
-    },
-    {
-      id: 'user103',
-      name: 'Maria Garcia',
-      location: 'Madrid, Spain',
-      profilePhoto: 'https://placehold.co/150x150/007bff/ffffff?text=MG',
-      skillsOffered: ['Spanish Language', 'Cooking'],
-      skillsWanted: ['Guitar Lessons', 'Drawing'],
-      availability: 'Weekdays, Evenings',
-      isPublic: true,
-    },
-    {
-      id: 'user104',
-      name: 'Chen Wei',
-      location: 'Beijing, China',
-      profilePhoto: 'https://placehold.co/150x150/007bff/ffffff?text=CW',
-      skillsOffered: ['Mandarin Language', 'Calligraphy'],
-      skillsWanted: ['Digital Marketing', 'Photography'],
-      availability: 'Weekends',
-      isPublic: true,
-    },
-    {
-      id: 'user105',
-      name: 'Emily White',
-      location: 'Toronto, Canada',
-      profilePhoto: 'https://placehold.co/150x150/007bff/ffffff?text=EW',
-      skillsOffered: ['Content Writing', 'Social Media Management'],
-      skillsWanted: ['Video Editing', 'SEO'],
-      availability: 'Weekdays',
-      isPublic: true,
-    },
-    {
-      id: 'user106',
-      name: 'Omar Hassan',
-      location: 'Dubai, UAE',
-      profilePhoto: 'https://placehold.co/150x150/007bff/ffffff?text=OH',
-      skillsOffered: ['Arabic Language', 'Business Strategy'],
-      skillsWanted: ['Web Development', 'Financial Modeling'],
-      availability: 'Evenings',
-      isPublic: true,
-    },
-  ];
-
-  useEffect(() => {
-    // Simulate fetching users
-    setLoading(true);
-    setError('');
-    setTimeout(() => {
-      // Filter out non-public profiles if needed, but dummy data is all public
-      const publicUsers = dummyUsers.filter(u => u.isPublic);
-      setUsers(publicUsers);
-      setTotalPages(Math.ceil(publicUsers.length / usersPerPage));
-      setLoading(false);
-    }, 1000);
-  }, []);
-
-  const handleSearch = (query) => {
-    setLoading(true);
-    // TODO: API call for search
-    setTimeout(() => {
-      const filteredUsers = dummyUsers.filter(user =>
-        user.name.toLowerCase().includes(query.toLowerCase()) ||
-        user.skillsOffered.some(skill => skill.toLowerCase().includes(query.toLowerCase())) ||
-        user.skillsWanted.some(skill => skill.toLowerCase().includes(query.toLowerCase()))
-      );
-      setUsers(filteredUsers);
-      setTotalPages(Math.ceil(filteredUsers.length / usersPerPage));
-      setCurrentPage(1); // Reset to first page on new search
-      setLoading(false);
-    }, 500);
-  };
-
-  const handleUserClick = (userId) => {
-    window.location.hash = `#profile/${userId}`;
-  };
-
-  const startIndex = (currentPage - 1) * usersPerPage;
-  const currentUsers = users.slice(startIndex, startIndex + usersPerPage);
-
-  return (
-    <div className="space-y-8">
-      <h2 className="text-3xl font-bold text-gray-800 text-center mb-6">Browse Skills</h2>
-      <SearchBar onSearch={handleSearch} placeholder="Search by skill or name (e.g., React, Photoshop)" />
-
-      {loading ? (
-        <LoadingSpinner />
-      ) : error ? (
-        <ErrorMessage message={error} />
-      ) : currentUsers.length === 0 ? (
-        <div className="bg-white p-6 rounded-lg shadow-md text-center text-gray-600">
-          <p>No users found matching your criteria.</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {currentUsers.map((user) => (
-            <UserCard key={user.id} user={user} onClick={handleUserClick} />
-          ))}
-        </div>
-      )}
-      {totalPages > 1 && (
-        <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
-      )}
-    </div>
-  );
-};
-
-const PublicProfilePage = ({ userId }) => {
-  const [userProfile, setUserProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
-
-  // Dummy data for users (should be fetched from a backend in real app)
-  const dummyUsers = [
-    {
-      id: 'user123',
-      name: 'John Doe',
-      location: 'New York, USA',
-      profilePhoto: 'https://placehold.co/150x150/007bff/ffffff?text=JD',
-      skillsOffered: ['React', 'Node.js', 'MongoDB'],
-      skillsWanted: ['UI/UX Design', 'Python'],
-      availability: 'Weekends, Evenings',
-      isPublic: true,
-    },
-    {
-      id: 'user456',
-      name: 'Jane Smith',
-      location: 'London, UK',
-      profilePhoto: 'https://placehold.co/150x150/007bff/ffffff?text=JS',
-      skillsOffered: ['UI/UX Design', 'Figma', 'Sketch'],
-      skillsWanted: ['React', 'Marketing'],
-      availability: 'Weekdays',
-      isPublic: true,
-    },
-    {
-      id: 'user789',
-      name: 'Mike Johnson',
-      location: 'Berlin, Germany',
-      profilePhoto: 'https://placehold.co/150x150/007bff/ffffff?text=MJ',
-      skillsOffered: ['Python', 'Data Science', 'Machine Learning'],
-      skillsWanted: ['Node.js', 'DevOps'],
-      availability: 'Evenings',
-      isPublic: true,
-    },
-  ];
-
-  useEffect(() => {
-    setLoading(true);
-    setError('');
-    // TODO: API call to fetch public user profile by userId
-    setTimeout(() => {
-      const foundUser = dummyUsers.find(u => u.id === userId && u.isPublic);
-      if (foundUser) {
-        setUserProfile(foundUser);
-      } else {
-        setError('User not found or profile is private.');
+        res.status(201).json({ success: true, message: 'Swap request sent successfully!', request: newRequest });
+      } catch (err) {
+        next(err);
       }
-      setLoading(false);
-    }, 500);
-  }, [userId]);
+    }
+  ],
 
-  const handleSendSwapRequest = async (message) => {
-    console.log(`Sending swap request to ${userProfile.name} with message: ${message}`);
-    // TODO: API call to send swap request
-    setIsSwapModalOpen(false);
-    alert('Swap request sent successfully! (Dummy)'); // Use a custom message box in real app
-  };
+  // Get all swap requests sent by the current user
+  getSentRequests: [
+    authenticateToken,
+    async (req, res, next) => {
+      try {
+        const requests = await SwapRequest.find({ sender: req.user.id })
+          .populate('recipient', 'name email profilePhoto') // Populate recipient details
+          .populate('sender', 'name email profilePhoto'); // Populate sender details
+        res.status(200).json({ success: true, requests });
+      } catch (err) {
+        next(err);
+      }
+    }
+  ],
 
-  if (loading) {
-    return <LoadingSpinner />;
-  }
+  // Get all swap requests received by the current user
+  getReceivedRequests: [
+    authenticateToken,
+    async (req, res, next) => {
+      try {
+        const requests = await SwapRequest.find({ recipient: req.user.id })
+          .populate('sender', 'name email profilePhoto') // Populate sender details
+          .populate('recipient', 'name email profilePhoto'); // Populate recipient details
+        res.status(200).json({ success: true, requests });
+      } catch (err) {
+        next(err);
+      }
+    }
+  ],
 
-  if (error) {
-    return <ErrorMessage message={error} />;
-  }
+  // Update status of a swap request (accept, reject, cancel)
+  updateSwapRequestStatus: [
+    authenticateToken,
+    body('status').isIn(['accepted', 'rejected', 'cancelled']).withMessage('Invalid status'),
+    async (req, res, next) => {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ success: false, errors: errors.array() });
+      }
 
-  if (!userProfile) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-lg text-gray-700">Profile not found or is private.</p>
-      </div>
-    );
-  }
+      const { status } = req.body;
+      const requestId = req.params.id;
+      const userId = req.user.id;
 
-  return (
-    <div className="space-y-8">
-      <h2 className="text-3xl font-bold text-gray-800 text-center mb-6">Public Profile</h2>
-      <UserProfile user={userProfile} isEditable={false} />
-      <div className="flex justify-center mt-6">
-        <Button onClick={() => setIsSwapModalOpen(true)}>Send Swap Request</Button>
-      </div>
+      try {
+        const request = await SwapRequest.findById(requestId);
+        if (!request) {
+          return res.status(404).json({ success: false, message: 'Swap request not found.' });
+        }
 
-      <SwapRequestModal
-        isOpen={isSwapModalOpen}
-        onClose={() => setIsSwapModalOpen(false)}
-        onSubmit={handleSendSwapRequest}
-        recipientUser={userProfile}
-      />
-    </div>
-  );
+        // Only recipient can accept/reject
+        if (status === 'accepted' || status === 'rejected') {
+          if (request.recipient.toString() !== userId) {
+            return res.status(403).json({ success: false, message: 'You are not authorized to perform this action on this request.' });
+          }
+        }
+        // Only sender can cancel
+        if (status === 'cancelled') {
+          if (request.sender.toString() !== userId) {
+            return res.status(403).json({ success: false, message: 'You are not authorized to cancel this request.' });
+          }
+        }
+
+        // Prevent status changes from final states (accepted/rejected/cancelled)
+        if (request.status !== 'pending') {
+          return res.status(400).json({ success: false, message: `Request is already ${request.status}. Cannot change status.` });
+        }
+
+        request.status = status;
+        await request.save();
+
+        // Optionally send email notification to the other party
+        const otherPartyId = request.sender.toString() === userId ? request.recipient : request.sender;
+        const otherParty = await User.findById(otherPartyId);
+        const currentUser = await User.findById(userId);
+
+        if (otherParty && currentUser && transporter) {
+          let emailSubject = '';
+          let emailText = '';
+          let emailHtml = '';
+
+          switch (status) {
+            case 'accepted':
+              emailSubject = 'Skill Swap Request Accepted!';
+              emailText = `${currentUser.name} has accepted your skill swap request for ${request.skillsInvolved.join(', ')}.`;
+              emailHtml = `<p><strong>${currentUser.name}</strong> has accepted your skill swap request for <strong>${request.skillsInvolved.join(', ')}</strong>.</p><p>Please connect with them to arrange the swap!</p>`;
+              break;
+            case 'rejected':
+              emailSubject = 'Skill Swap Request Rejected';
+              emailText = `${currentUser.name} has rejected your skill swap request for ${request.skillsInvolved.join(', ')}.`;
+              emailHtml = `<p><strong>${currentUser.name}</strong> has rejected your skill swap request for <strong>${request.skillsInvolved.join(', ')}</strong>.</p>`;
+              break;
+            case 'cancelled':
+              emailSubject = 'Skill Swap Request Cancelled';
+              emailText = `${currentUser.name} has cancelled the skill swap request for ${request.skillsInvolved.join(', ')}.`;
+              emailHtml = `<p><strong>${currentUser.name}</strong> has cancelled the skill swap request for <strong>${request.skillsInvolved.join(', ')}</strong>.</p>`;
+              break;
+          }
+          await sendEmail(otherParty.email, emailSubject, emailText, emailHtml);
+        }
+
+        res.status(200).json({ success: true, message: `Swap request status updated to ${status}.`, request });
+      } catch (err) {
+        next(err);
+      }
+    }
+  ],
+
+  // Delete/Archive a swap request (can be done by either sender or recipient after it's not pending)
+  deleteSwapRequest: [
+    authenticateToken,
+    async (req, res, next) => {
+      const requestId = req.params.id;
+      const userId = req.user.id;
+
+      try {
+        const request = await SwapRequest.findById(requestId);
+        if (!request) {
+          return res.status(404).json({ success: false, message: 'Swap request not found.' });
+        }
+
+        // Only the sender or recipient can delete/archive the request
+        if (request.sender.toString() !== userId && request.recipient.toString() !== userId) {
+          return res.status(403).json({ success: false, message: 'You are not authorized to delete this request.' });
+        }
+
+        // For simplicity, we'll actually delete it. In a real app, you might soft-delete or archive.
+        await SwapRequest.findByIdAndDelete(requestId);
+        res.status(200).json({ success: true, message: 'Swap request deleted successfully.' });
+      } catch (err) {
+        next(err);
+      }
+    }
+  ],
 };
 
-const SwapRequestModal = ({ isOpen, onClose, onSubmit, recipientUser }) => {
-  const [message, setMessage] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setError('');
-    const result = await onSubmit(message); // This calls the parent's onSubmit
-    if (!result || !result.success) {
-      setError(result?.error || 'Failed to send request.');
+// --- Admin Controllers ---
+const adminController = {
+  // Send platform-wide messages (conceptual - in a real app, this might involve a messaging service)
+  sendPlatformMessage: [
+    authenticateToken,
+    authorizeRoles('admin'),
+    body('message').notEmpty().withMessage('Message content is required.'),
+    async (req, res, next) => {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ success: false, errors: errors.array() });
+      }
+      const { message } = req.body;
+      try {
+        // In a real application, this would iterate through users and send emails/notifications
+        // For now, just log and simulate success.
+        console.log(`Admin sent platform message: "${message}"`);
+        // Example: Fetch all users and send email to each (be careful with rate limits!)
+        // const allUsers = await User.find().select('email');
+        // for (const user of allUsers) {
+        //   await sendEmail(user.email, 'Skill Swap: Platform Update', message, `<p>${message}</p>`);
+        // }
+        res.status(200).json({ success: true, message: 'Platform message sent successfully (simulated).' });
+      } catch (err) {
+        next(err);
+      }
     }
-    setIsLoading(false);
-    if (result?.success) {
-      setMessage(''); // Clear message on success
-      onClose();
-    }
-  };
+  ],
 
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title={`Send Swap Request to ${recipientUser?.name}`}>
-      <form onSubmit={handleSubmit}>
-        <ErrorMessage message={error} />
-        <p className="text-gray-700 mb-4">
-          You are requesting a skill swap with <span className="font-semibold">{recipientUser?.name}</span>.
-          Consider mentioning which of your skills you'd like to offer and which of their skills you're interested in.
-        </p>
-        <TextAreaField
-          label="Your Message"
-          name="message"
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          placeholder="Hi, I'm interested in your [skill] and can offer [my skill]. Let me know!"
-          rows={5}
-          required
-        />
-        <div className="flex justify-end space-x-4 mt-6">
-          <Button type="submit" disabled={isLoading}>
-            {isLoading ? <LoadingSpinner /> : 'Send Request'}
-          </Button>
-          <Button type="button" variant="secondary" onClick={onClose} disabled={isLoading}>
-            Cancel
-          </Button>
-        </div>
-      </form>
-    </Modal>
-  );
+  // Download reports (conceptual - in a real app, this would generate CSV/PDF)
+  downloadReport: [
+    authenticateToken,
+    authorizeRoles('admin'),
+    async (req, res, next) => {
+      const { reportType } = req.params; // e.g., 'user_activity', 'feedback_logs', 'swap_stats'
+      try {
+        // Simulate fetching data for the report
+        let reportData = [];
+        let filename = `${reportType}_report.json`; // Default to JSON
+
+        switch (reportType) {
+          case 'user_activity':
+            reportData = await User.find().select('name email createdAt updatedAt -_id');
+            break;
+          case 'feedback_logs':
+            // Assuming a Feedback model exists, or pulling from user activity logs
+            reportData = [{ id: 'dummy_feedback_1', user: 'user123', content: 'Great platform!', date: new Date() }];
+            break;
+          case 'swap_stats':
+            reportData = await SwapRequest.aggregate([
+              { $group: { _id: '$status', count: { $sum: 1 } } }
+            ]);
+            break;
+          default:
+            return res.status(400).json({ success: false, message: 'Invalid report type.' });
+        }
+
+        // For simplicity, sending as JSON. In a real app, you'd generate CSV/Excel.
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.status(200).send(JSON.stringify(reportData, null, 2));
+      } catch (err) {
+        next(err);
+      }
+    }
+  ],
 };
 
-// --- Main App Component ---
+// --- 9. Routes ---
 
-const App = () => {
-  const [currentPath, setCurrentPath] = useState(window.location.hash);
+const authRoutes = express.Router();
+authRoutes.post('/signup', authController.signup);
+authRoutes.post('/verify-otp', authController.verifyOtp);
+authRoutes.post('/send-otp', authController.sendOtp); // For resending OTP or verifying unverified users
+authRoutes.post('/login', authController.login);
+authRoutes.post('/forgot-password', authController.forgotPassword);
+authRoutes.post('/reset-password', authController.resetPassword);
+authRoutes.get('/me', authenticateToken, authController.getMe); // Get current user's profile
 
-  useEffect(() => {
-    const handleHashChange = () => {
-      setCurrentPath(window.location.hash);
-    };
-    window.addEventListener('hashchange', handleHashChange);
-    return () => {
-      window.removeEventListener('hashchange', handleHashChange);
-    };
-  }, []);
+const userRoutes = express.Router();
+userRoutes.get('/', userController.getAllUsers); // Get all public users
+userRoutes.get('/:id', userController.getUserById); // Get public profile by ID
+userRoutes.put('/profile', authenticateToken, userController.updateProfile); // Update own profile
+// Admin routes for user management
+userRoutes.put('/:id/ban', authenticateToken, authorizeRoles('admin'), userController.banUser);
+userRoutes.put('/:id/unban', authenticateToken, authorizeRoles('admin'), userController.unbanUser);
 
-  const renderPage = () => {
-    if (currentPath.startsWith('#profile/')) {
-      const userId = currentPath.split('/')[1];
-      return <PublicProfilePage userId={userId} />;
-    }
 
-    switch (currentPath) {
-      case '#login':
-        return <LoginPage />;
-      case '#signup':
-        return <SignupPage />;
-      case '#browse-skills':
-        return <BrowseSkillsPage />;
-      case '#my-profile':
-        return <MyProfilePage />;
-      case '': // Default to browse skills or home
-      case '#home':
-      default:
-        return <BrowseSkillsPage />; // Or a dedicated home page
-    }
-  };
+const swapRoutes = express.Router();
+swapRoutes.post('/', authenticateToken, swapController.createSwapRequest);
+swapRoutes.get('/sent', authenticateToken, swapController.getSentRequests);
+swapRoutes.get('/received', authenticateToken, swapController.getReceivedRequests);
+swapRoutes.put('/:id/status', authenticateToken, swapController.updateSwapRequestStatus); // Accept/Reject/Cancel
+swapRoutes.delete('/:id', authenticateToken, swapController.deleteSwapRequest); // Delete/Archive
 
-  return (
-    <AuthProvider>
-      <Layout>
-        {renderPage()}
-      </Layout>
-    </AuthProvider>
-  );
-};
 
-export default App;
+const adminRoutes = express.Router();
+adminRoutes.post('/message', adminController.sendPlatformMessage);
+adminRoutes.get('/reports/:reportType', adminController.downloadReport);
 
+// --- 10. Integrate Routes ---
+app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/swaps', swapRoutes);
+app.use('/api/admin', adminRoutes); // Admin routes should be protected by authorizeRoles middleware within controllers
+
+// --- 11. Server Start ---
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log('API Endpoints:');
+  console.log(`  Auth: /api/auth/{signup, verify-otp, send-otp, login, forgot-password, reset-password, me}`);
+  console.log(`  Users: /api/users/{, :id, profile, :id/ban, :id/unban}`);
+  console.log(`  Swaps: /api/swaps/{, sent, received, :id/status, :id}`);
+  console.log(`  Admin: /api/admin/{message, reports/:reportType}`);
+});

@@ -1,6 +1,6 @@
 import nodemailer from 'nodemailer'
 
-const transport=nodemailer.createTransport({
+const transporter=nodemailer.createTransport({
      host:'smtp-relay.brevo.com',
      port:587,
      auth:{
@@ -10,4 +10,4 @@ const transport=nodemailer.createTransport({
     
 })
 
-export default transport;
+export default transporter;
