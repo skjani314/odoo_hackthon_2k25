@@ -4,7 +4,7 @@ import SwapRequestItem from '../SwapRequestItem/SwapRequestItem.jsx';
 
 
 const SwapRequestList = ({ requests, type, onAccept, onReject, onDelete }) => {
-  if (requests.length === 0) {
+  if (requests || requests.length === 0) {
     return (
       <div className="bg-white p-6 rounded-lg shadow-md text-center text-gray-600">
         <p>No {type} swap requests found.</p>

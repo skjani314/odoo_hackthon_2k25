@@ -8,23 +8,26 @@ import { toast } from 'react-toastify';
 import LoadingSpinner from '../../components/ui/Loading/Loading.jsx';
 import ErrorMessage from '../../components/ui/Error/Error.jsx';
 import Button from '../../components/ui/button/Button.jsx';
-import InputField from '../../components/ui/input/Input.jsx'; // Assuming InputField path, renamed from common/InputField
+import InputField from '../../components/ui/input_field/InputField.jsx'; // Assuming InputField path, renamed from common/InputField
 import TextAreaField from '../../components/ui/TextArea/TextArea.jsx'; // Assuming TextAreaField path
 import Modal from '../../components/ui/Modal/Modal.jsx'; // Assuming Modal path
 
 // Assuming these are application-specific components
 import { AuthContext } from '../../Context/AuthContext/AuthContext.jsx';
+// Corrected import path for SwapRequestList if it's in a different folder than MyProfilePage
+// If SwapRequestList is in the same folder as MyProfilePage, the path would be './SwapRequestList.jsx'
+// Based on your previous structure, it seems to be in '../../components/SwapRequestList/SwapRequestList.jsx'
 import SwapRequestList from '../../components/SwapRequestList/SwapRequestList.jsx';
-import SwapRequestItem from '../../components/SwapRequestList/SwapRequestItem.jsx'; // Assuming SwapRequestItem path
+import SwapRequestItem from '../../components/SwapRequestItem/SwapRequestItem.jsx'; // Assuming SwapRequestItem path
 import SkillList from '../../components/SkillList/SkillList.jsx'; // Assuming SkillList path
-import AvailabilityDisplay from '../../components/AvailabilityDisplay/AvailabilityDisplay.jsx'; // Assuming AvailabilityDisplay path
+import AvailabilityDisplay from '../../components/Availability Display/AvailabilityDisplay.jsx'; // Assuming AvailabilityDisplay path
 
 
 // --- API Base URL (Centralized for Frontend) ---
 const API_BASE_URL = 'http://localhost:5000/api'; // Ensure this matches your backend URL
 
 
-// --- UserProfile Component (Updated to include image upload) ---
+// --- UserProfile Component (Updated to include image upload and robust skill handling) ---
 /**
  * UserProfile Component
  * Displays and optionally allows editing of a user's profile information,
@@ -32,12 +35,20 @@ const API_BASE_URL = 'http://localhost:5000/api'; // Ensure this matches your ba
  */
 const UserProfile = ({ user, isEditable = false, onUpdateProfile, isLoading, error }) => {
   const [isEditing, setIsEditing] = useState(false);
-  // Use a deep copy to ensure changes in profileData don't affect 'user' directly until saved
-  const [profileData, setProfileData] = useState(user ? { ...user } : null);
+  // Use a deep copy and ensure default empty arrays for skills if not present
+  const [profileData, setProfileData] = useState(user ? {
+    ...user,
+    skillsOffered: user.skillsOffered || [],
+    skillsWanted: user.skillsWanted || [],
+  } : null);
 
   useEffect(() => {
     // Update internal state when the 'user' prop changes (e.g., after initial fetch or successful update)
-    setProfileData(user ? { ...user } : null);
+    setProfileData(user ? {
+      ...user,
+      skillsOffered: user.skillsOffered || [],
+      skillsWanted: user.skillsWanted || [],
+    } : null);
   }, [user]);
 
   // Handle changes for text inputs and checkboxes
@@ -62,21 +73,37 @@ const UserProfile = ({ user, isEditable = false, onUpdateProfile, isLoading, err
     }
   };
 
-  // Handle adding/removing skills
+  // Handle adding/removing skills - MODIFIED TO SAFELY ACCESS SKILLS ARRAYS
   const handleSkillChange = (skill, type, action) => {
     setProfileData((prev) => {
-      const skillsArray = type === 'offered' ? [...prev.skillsOffered] : [...prev.skillsWanted];
+      // Ensure skills arrays are initialized to empty arrays if they are null/undefined
+      const currentSkillsOffered = prev.skillsOffered || [];
+      const currentSkillsWanted = prev.skillsWanted || [];
+
+      let skillsArray;
+      let updatedSkills = {};
+
+      if (type === 'offered') {
+        skillsArray = [...currentSkillsOffered];
+      } else { // type === 'wanted'
+        skillsArray = [...currentSkillsWanted];
+      }
+
       if (action === 'add' && !skillsArray.includes(skill)) {
         skillsArray.push(skill);
       } else if (action === 'remove') {
-        return {
-          ...prev,
-          [type === 'offered' ? 'skillsOffered' : 'skillsWanted']: skillsArray.filter(s => s !== skill)
-        };
+        skillsArray = skillsArray.filter(s => s !== skill);
       }
+
+      if (type === 'offered') {
+        updatedSkills = { skillsOffered: skillsArray };
+      } else {
+        updatedSkills = { skillsWanted: skillsArray };
+      }
+
       return {
         ...prev,
-        [type === 'offered' ? 'skillsOffered' : 'skillsWanted']: skillsArray
+        ...updatedSkills
       };
     });
   };
@@ -92,7 +119,11 @@ const UserProfile = ({ user, isEditable = false, onUpdateProfile, isLoading, err
 
   // Cancel editing and revert to original user data
   const handleCancel = () => {
-    setProfileData(user ? { ...user } : null); // Revert to original user data
+    setProfileData(user ? {
+      ...user,
+      skillsOffered: user.skillsOffered || [],
+      skillsWanted: user.skillsWanted || [],
+    } : null); // Revert to original user data
     setIsEditing(false);
   };
 

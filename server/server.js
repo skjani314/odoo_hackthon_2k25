@@ -112,7 +112,8 @@ const swapRequestSchema = new mongoose.Schema({
 const SwapRequest = mongoose.model('SwapRequest', swapRequestSchema);
 
 // --- 5. Middleware ---
-app.use(express.json()); // Body parser for JSON requests
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(cors()); // Enable CORS for all origins (adjust for production, e.g., { origin: 'http://localhost:3000' })
 
 // Custom Error Handler Middleware (Centralized)

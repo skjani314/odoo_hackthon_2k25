@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 
 // --- Reusable Button Component (Included for self-containment) ---
 /**
@@ -183,12 +184,12 @@ const AuthForm = ({ type, onSubmit, isLoading, error }) => {
       */}
       {type === 'login' && (
         <p className="text-center text-sm mt-4 text-gray-600">
-          Don't have an account? <a href="#signup" className="text-blue-600 hover:underline">Sign Up</a>
+          Don't have an account? <Link href="/signup" className="text-blue-600 hover:underline">Sign Up</Link>
         </p>
       )}
       {type === 'signup' && (
         <p className="text-center text-sm mt-4 text-gray-600">
-          Already have an account? <a href="#login" className="text-blue-600 hover:underline">Login</a>
+          Already have an account? <Link href="/login" className="text-blue-600 hover:underline">Login</Link>
         </p>
       )}
     </form>
